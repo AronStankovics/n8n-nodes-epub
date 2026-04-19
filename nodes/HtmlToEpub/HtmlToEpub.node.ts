@@ -238,10 +238,10 @@ function resolveFileName(override: string | undefined, title: string): string {
 	if (trimmed) {
 		return trimmed.toLowerCase().endsWith('.epub') ? trimmed : `${trimmed}.epub`;
 	}
-	const slug = title
-		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, '-')
-		.replace(/^-+|-+$/g, '')
-		.slice(0, 60);
-	return `${slug || 'article'}.epub`;
+	const safe = title
+		.replace(/[/\\:*?"<>|]/g, '')
+		.replace(/\s+/g, ' ')
+		.replace(/^[\s.]+|[\s.]+$/g, '')
+		.slice(0, 200);
+	return `${safe || 'article'}.epub`;
 }
