@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-epub",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "n8n community node that converts HTML into an EPUB e-book. Zero runtime dependencies — builds the EPUB (ZIP + OPF + XHTML) in memory. Works on n8n Cloud.",
   "license": "MIT",
   "homepage": "https://github.com/AronStankovics/n8n-nodes-epub",
