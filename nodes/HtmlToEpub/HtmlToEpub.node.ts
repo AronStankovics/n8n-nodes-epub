@@ -7,6 +7,7 @@ import type {
 import { NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
 
 import { buildEpub, type EpubInput } from './epub';
+import { extractImageUrls, fetchImages, rewriteImgSrc } from './images';
 
 type InputSource = 'string' | 'binary';
 
@@ -102,13 +103,21 @@ export class HtmlToEpub implements INodeType {
 						description: 'Short description stored as dc:description',
 					},
 					{
+						displayName: 'Fetch Image Timeout (Ms)',
+						name: 'imageTimeoutMs',
+						type: 'number',
+						default: 30000,
+						description:
+							'How long to wait for each image download before giving up. Failed images keep their remote src as a fallback.',
+					},
+					{
 						displayName: 'File Name',
 						name: 'fileName',
 						type: 'string',
 						default: '',
 						placeholder: 'article.epub',
 						description:
-							'Override the output file name. Defaults to a slugified title or "article.epub".',
+							'Override the output file name. Defaults to the title plus ".epub".',
 					},
 					{
 						displayName: 'Identifier (UUID)',
@@ -120,12 +129,27 @@ export class HtmlToEpub implements INodeType {
 							'Stable identifier for the book. When empty, a random UUID is generated on every run.',
 					},
 					{
+						displayName: 'Inline Images',
+						name: 'inlineImages',
+						type: 'boolean',
+						default: true,
+						description:
+							'Whether to download every remote image in the HTML and bundle it inside the EPUB. Needed for offline reading on Kindle/Kobo.',
+					},
+					{
 						displayName: 'Language',
 						name: 'language',
 						type: 'string',
 						default: 'en',
 						placeholder: 'en',
 						description: 'BCP-47 language tag (e.g. en, en-US, de, fr). Defaults to "en".',
+					},
+					{
+						displayName: 'Max Image Bytes',
+						name: 'imageMaxBytes',
+						type: 'number',
+						default: 10485760,
+						description: 'Skip any single image larger than this number of bytes',
 					},
 					{
 						displayName: 'Publisher',
@@ -156,6 +180,9 @@ export class HtmlToEpub implements INodeType {
 					description?: string;
 					fileName?: string;
 					identifier?: string;
+					imageMaxBytes?: number;
+					imageTimeoutMs?: number;
+					inlineImages?: boolean;
 					language?: string;
 					publisher?: string;
 				};
@@ -188,14 +215,31 @@ export class HtmlToEpub implements INodeType {
 					);
 				}
 
+				let finalHtml = html;
+				const fetchedImages = [];
+				const inlineImages = additionalFields.inlineImages ?? true;
+				if (inlineImages) {
+					const urls = extractImageUrls(html);
+					if (urls.length > 0) {
+						const imageMap = await fetchImages(this, urls, {
+							timeoutMs: additionalFields.imageTimeoutMs ?? 30000,
+							maxBytes: additionalFields.imageMaxBytes ?? 10 * 1024 * 1024,
+							userAgent: 'n8n-nodes-epub/1.0',
+						});
+						finalHtml = rewriteImgSrc(html, imageMap);
+						for (const img of imageMap.values()) fetchedImages.push(img);
+					}
+				}
+
 				const epubInput: EpubInput = {
-					html,
+					html: finalHtml,
 					title,
 					author: additionalFields.author?.trim() || undefined,
 					description: additionalFields.description?.trim() || undefined,
 					identifier: additionalFields.identifier?.trim() || undefined,
 					language: additionalFields.language?.trim() || undefined,
 					publisher: additionalFields.publisher?.trim() || undefined,
+					images: fetchedImages,
 				};
 
 				const epubBytes = buildEpub(epubInput);
@@ -212,6 +256,7 @@ export class HtmlToEpub implements INodeType {
 						fileName,
 						size: epubBytes.length,
 						title,
+						imagesBundled: fetchedImages.length,
 					},
 					binary: { [outputBinaryProperty]: binaryData },
 					pairedItem: { item: itemIndex },

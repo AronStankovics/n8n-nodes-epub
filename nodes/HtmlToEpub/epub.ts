@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
+import type { FetchedImage } from './images';
 import { buildZip, type ZipEntry } from './zip';
 
 export interface EpubInput {
@@ -10,15 +11,36 @@ export interface EpubInput {
 	identifier?: string;
 	publisher?: string;
 	description?: string;
+	images?: FetchedImage[];
 }
 
-const DEFAULT_STYLE = `body { font-family: serif; line-height: 1.6; margin: 1em; }
-h1, h2, h3, h4 { font-family: sans-serif; line-height: 1.25; }
-img { max-width: 100%; height: auto; }
+const DEFAULT_STYLE = `body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  padding: 1em;
+  line-height: 1.5;
+  max-width: 45em;
+  margin: 0 auto;
+}
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 600;
+  line-height: 1.25;
+}
+img {
+  max-width: 100%;
+  height: auto;
+}
 figure { margin: 1em 0; }
-figure figcaption { font-size: 0.85em; color: #555; }
-blockquote { border-left: 3px solid #ccc; padding-left: 1em; color: #555; margin: 1em 0; }
-pre, code { font-family: monospace; background: #f4f4f4; }
+figcaption { font-size: 0.85em; color: #555; }
+blockquote {
+  border-left: 3px solid #ccc;
+  padding-left: 1em;
+  color: #555;
+  margin: 1em 0;
+}
+pre, code {
+  font-family: "SF Mono", Consolas, Menlo, monospace;
+  background: #f4f4f4;
+}
 code { padding: 0.1em 0.25em; border-radius: 3px; }
 pre { padding: 0.8em; overflow-x: auto; border-radius: 3px; }
 a { color: #0066cc; text-decoration: none; }
@@ -26,6 +48,10 @@ a:hover { text-decoration: underline; }
 hr { border: 0; border-top: 1px solid #ccc; margin: 2em 0; }
 table { border-collapse: collapse; margin: 1em 0; }
 td, th { border: 1px solid #ccc; padding: 0.4em 0.6em; }
+.byline { color: #666; margin: 0.5em 0 1em; }
+.toc-title { margin: 1em 0; }
+.toc-list { list-style-type: none; padding-left: 0; margin: 2em 0; }
+.toc-list li { margin: 1em 0; }
 `;
 
 const VOID_ELEMENTS = [
@@ -44,7 +70,6 @@ const VOID_ELEMENTS = [
 	'wbr',
 ];
 
-// Escape characters that have special meaning in XML text nodes and attributes.
 export function xmlEscape(str: string): string {
 	return str
 		.replace(/&/g, '&amp;')
@@ -54,13 +79,9 @@ export function xmlEscape(str: string): string {
 		.replace(/'/g, '&apos;');
 }
 
-// Convert a loose chunk of HTML into something close enough to XHTML that
-// EPUB readers will parse it. This is not a full DOM sanitizer — it:
-//   - extracts body content if wrapped in <html><body>
-//   - strips <script>, <style>, <iframe>, <object>, <embed>, <applet> blocks
-//   - strips inline event handlers (onclick, onload, ...)
-//   - self-closes void elements (<br>, <img>, <hr>, ...)
-//   - escapes bare `&` characters that aren't already part of an entity
+// Convert loose HTML into XHTML-safe markup — enough for EPUB readers to parse.
+// Not a sanitizer: strips scripts/iframes/event handlers, self-closes voids,
+// escapes stray `&`, extracts `<body>` when present.
 export function htmlToXhtmlBody(html: string): string {
 	let body: string;
 	const bodyMatch = /<body[^>]*>([\s\S]*?)<\/body>/i.exec(html);
@@ -79,80 +100,96 @@ export function htmlToXhtmlBody(html: string): string {
 	body = body.replace(/<applet\b[\s\S]*?<\/applet\s*>/gi, '');
 	body = body.replace(/<!--[\s\S]*?-->/g, '');
 
-	// Strip inline event handler attributes (onclick="..." etc.).
 	body = body.replace(/\s+on[a-z]+\s*=\s*"[^"]*"/gi, '');
 	body = body.replace(/\s+on[a-z]+\s*=\s*'[^']*'/gi, '');
 
-	// Self-close each void element that isn't already self-closed.
 	for (const tag of VOID_ELEMENTS) {
 		const re = new RegExp(`<(${tag})\\b([^>]*?)(?<!/)>`, 'gi');
 		body = body.replace(re, '<$1$2/>');
 	}
 
-	// Escape stray `&` not part of an entity.
 	body = body.replace(/&(?![a-zA-Z]+;|#\d+;|#x[0-9a-fA-F]+;)/g, '&amp;');
 
 	return body.trim();
 }
 
 function renderChapter(input: EpubInput): string {
-	const lang = input.language || 'en';
 	const title = xmlEscape(input.title);
-	const author = input.author ? `<p class="byline">${xmlEscape(input.author)}</p>` : '';
-	const body = htmlToXhtmlBody(input.html);
-	return `<?xml version="1.0" encoding="UTF-8"?>
+	const bodyHtml = htmlToXhtmlBody(input.html);
+	const byline = input.author
+		? `<p class="byline">By ${xmlEscape(input.author)}</p>\n<hr/>\n`
+		: '';
+	return `<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="${lang}" lang="${lang}">
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
 <head>
 <title>${title}</title>
-<meta charset="utf-8"/>
 <link rel="stylesheet" type="text/css" href="style.css"/>
 </head>
 <body>
+<section epub:type="chapter">
 <h1>${title}</h1>
-${author}
-${body}
+${byline}${bodyHtml}
+</section>
 </body>
 </html>
 `;
 }
 
-function renderOpf(input: EpubInput, uid: string): string {
+function renderOpf(input: EpubInput, uid: string, images: FetchedImage[]): string {
 	const lang = input.language || 'en';
 	const title = xmlEscape(input.title);
-	const author = input.author ? `<dc:creator>${xmlEscape(input.author)}</dc:creator>` : '';
+	const author = input.author ? `<dc:creator id="creator">${xmlEscape(input.author)}</dc:creator>` : '';
 	const publisher = input.publisher
 		? `<dc:publisher>${xmlEscape(input.publisher)}</dc:publisher>`
 		: '';
 	const description = input.description
 		? `<dc:description>${xmlEscape(input.description)}</dc:description>`
 		: '';
-	const modified = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+	const now = new Date();
+	const datePart = now.toISOString().slice(0, 10);
+	const modified = now.toISOString().replace(/\.\d{3}Z$/, 'Z');
+	const imageItems = images
+		.map(
+			(img) =>
+				`<item id="${img.id}" href="${img.localPath}" media-type="${img.mimeType}"/>`,
+		)
+		.join('\n');
 	return `<?xml version="1.0" encoding="UTF-8"?>
-<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="book-id" xml:lang="${lang}">
-<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
-<dc:identifier id="book-id">urn:uuid:${uid}</dc:identifier>
+<package xmlns="http://www.idpf.org/2007/opf"
+         version="3.0"
+         unique-identifier="BookId"
+         xmlns:dc="http://purl.org/dc/elements/1.1/"
+         xmlns:dcterms="http://purl.org/dc/terms/"
+         xml:lang="${lang}">
+<metadata xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf">
+<dc:identifier id="BookId">urn:uuid:${uid}</dc:identifier>
 <dc:title>${title}</dc:title>
 <dc:language>${lang}</dc:language>
 ${author}
 ${publisher}
 ${description}
+<dc:date>${datePart}</dc:date>
 <meta property="dcterms:modified">${modified}</meta>
 </metadata>
 <manifest>
-<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
 <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
-<item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/>
-<item id="style" href="style.css" media-type="text/css"/>
+<item id="toc" href="toc.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+<item id="css" href="style.css" media-type="text/css"/>
+<item id="chapter-1" href="article_content.xhtml" media-type="application/xhtml+xml"/>
+${imageItems}
 </manifest>
 <spine toc="ncx">
-<itemref idref="chapter"/>
+<itemref idref="chapter-1"/>
 </spine>
+<guide>
+<reference type="text" title="Table of Content" href="toc.xhtml"/>
+</guide>
 </package>
 `;
 }
 
-function renderNav(input: EpubInput): string {
+function renderToc(input: EpubInput): string {
 	const lang = input.language || 'en';
 	const title = xmlEscape(input.title);
 	return `<?xml version="1.0" encoding="UTF-8"?>
@@ -160,13 +197,16 @@ function renderNav(input: EpubInput): string {
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="${lang}" lang="${lang}">
 <head>
 <title>${title}</title>
-<meta charset="utf-8"/>
+<meta charset="UTF-8"/>
+<link rel="stylesheet" type="text/css" href="style.css"/>
 </head>
 <body>
-<nav epub:type="toc" id="toc">
-<h1>${title}</h1>
-<ol>
-<li><a href="chapter.xhtml">${title}</a></li>
+<h2 class="toc-title">Table of Contents</h2>
+<nav id="toc" epub:type="toc">
+<ol class="toc-list">
+<li class="table-of-content">
+<a href="article_content.xhtml">1. ${title}</a>
+</li>
 </ol>
 </nav>
 </body>
@@ -177,7 +217,6 @@ function renderNav(input: EpubInput): string {
 function renderNcx(input: EpubInput, uid: string): string {
 	const title = xmlEscape(input.title);
 	return `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE ncx PUBLIC "-//NISO//DTD ncx 2005-1//EN" "http://www.daisy.org/z3986/2005/ncx-2005-1.dtd">
 <ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
 <head>
 <meta name="dtb:uid" content="urn:uuid:${uid}"/>
@@ -187,9 +226,9 @@ function renderNcx(input: EpubInput, uid: string): string {
 </head>
 <docTitle><text>${title}</text></docTitle>
 <navMap>
-<navPoint id="navpoint-1" playOrder="1">
-<navLabel><text>${title}</text></navLabel>
-<content src="chapter.xhtml"/>
+<navPoint id="chapter-1" playOrder="1">
+<navLabel><text>1. ${title}</text></navLabel>
+<content src="article_content.xhtml"/>
 </navPoint>
 </navMap>
 </ncx>
@@ -207,17 +246,21 @@ const CONTAINER_XML = `<?xml version="1.0" encoding="UTF-8"?>
 export function buildEpub(input: EpubInput): Uint8Array {
 	const uid = (input.identifier && input.identifier.trim()) || randomUUID();
 	const encoder = new TextEncoder();
+	const images = input.images || [];
 
-	// EPUB requires `mimetype` to be the first entry in the archive.
 	const entries: ZipEntry[] = [
 		{ path: 'mimetype', data: encoder.encode('application/epub+zip') },
 		{ path: 'META-INF/container.xml', data: encoder.encode(CONTAINER_XML) },
-		{ path: 'OEBPS/content.opf', data: encoder.encode(renderOpf(input, uid)) },
-		{ path: 'OEBPS/nav.xhtml', data: encoder.encode(renderNav(input)) },
+		{ path: 'OEBPS/content.opf', data: encoder.encode(renderOpf(input, uid, images)) },
+		{ path: 'OEBPS/toc.xhtml', data: encoder.encode(renderToc(input)) },
 		{ path: 'OEBPS/toc.ncx', data: encoder.encode(renderNcx(input, uid)) },
-		{ path: 'OEBPS/chapter.xhtml', data: encoder.encode(renderChapter(input)) },
+		{ path: 'OEBPS/article_content.xhtml', data: encoder.encode(renderChapter(input)) },
 		{ path: 'OEBPS/style.css', data: encoder.encode(DEFAULT_STYLE) },
 	];
+
+	for (const img of images) {
+		entries.push({ path: `OEBPS/${img.localPath}`, data: img.data });
+	}
 
 	return buildZip(entries);
 }
