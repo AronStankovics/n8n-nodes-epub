@@ -131,6 +131,63 @@ export async function fetchImages(
 	return result;
 }
 
+// Fetch a single image and register it as the book cover. Unlike fetchImages,
+// this throws on failure — if the user explicitly asked for a cover, a silent
+// fallback would be surprising.
+export async function fetchCoverImage(
+	executeFns: IExecuteFunctions,
+	url: string,
+	options: InlineOptions,
+): Promise<FetchedImage> {
+	const response = (await executeFns.helpers.httpRequest({
+		method: 'GET',
+		url,
+		returnFullResponse: true,
+		encoding: 'arraybuffer',
+		timeout: options.timeoutMs,
+		headers: { 'User-Agent': options.userAgent },
+	})) as { body: Buffer | ArrayBuffer | Uint8Array; headers: Record<string, string> };
+
+	const bodyBytes =
+		response.body instanceof Uint8Array
+			? response.body
+			: new Uint8Array(response.body as ArrayBuffer);
+
+	if (bodyBytes.byteLength > options.maxBytes) {
+		throw new Error(
+			`Cover image at ${url} is larger than the configured maximum (${options.maxBytes} bytes).`,
+		);
+	}
+
+	const headerContentType = response.headers['content-type'] || '';
+	const normalizedMime = headerContentType.split(';')[0].trim().toLowerCase();
+	const extFromHeader = EXT_FOR_MIME[normalizedMime];
+	const ext = extFromHeader || extForUrl(url) || 'jpeg';
+	const mimeType = normalizedMime.startsWith('image/') ? normalizedMime : mimeForExt(ext);
+
+	return {
+		localPath: `images/cover.${ext}`,
+		id: 'cover-image',
+		mimeType,
+		data: bodyBytes,
+	};
+}
+
+// Build a cover image descriptor from in-memory bytes (e.g. an n8n binary
+// property on the input item). The mime type comes from the binary metadata.
+export function coverFromBinary(buffer: Uint8Array, declaredMime: string): FetchedImage {
+	const normalizedMime = (declaredMime || '').split(';')[0].trim().toLowerCase();
+	const extFromMime = EXT_FOR_MIME[normalizedMime];
+	const ext = extFromMime || 'jpeg';
+	const mimeType = normalizedMime.startsWith('image/') ? normalizedMime : mimeForExt(ext);
+	return {
+		localPath: `images/cover.${ext}`,
+		id: 'cover-image',
+		mimeType,
+		data: buffer,
+	};
+}
+
 // Rewrite every `<img src>` to point at the local path inside the EPUB, where
 // possible. Unknown/failed URLs are left untouched.
 export function rewriteImgSrc(html: string, images: Map<string, FetchedImage>): string {
