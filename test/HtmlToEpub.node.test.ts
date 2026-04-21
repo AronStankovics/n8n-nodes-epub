@@ -409,6 +409,85 @@ describe('nodes/HtmlToEpub/HtmlToEpub.node.ts', () => {
 			const css = extractZipEntry(capture.get(), 'OEBPS/style.css')!;
 			expect(css).toContain('.toc-list');
 			expect(css).not.toContain('Georgia, serif');
+	describe('execute() — cover image', () => {
+		it('should set hasCover=true and fetch the URL when coverUrl is provided', async () => {
+			const bundle = makeExecuteFunctionsMock({
+				parameters: buildParams({
+					additionalFields: {
+						...defaultAdditional,
+						coverUrl: 'https://example.com/cover.png',
+					},
+				}),
+				httpRequest: async () => ({
+					body: pngPixel,
+					headers: { 'content-type': 'image/png' },
+				}),
+			});
+			const result = await runExecute(bundle);
+			expect(bundle.calls.httpRequest).toHaveLength(1);
+			expect(bundle.calls.httpRequest[0].url).toBe('https://example.com/cover.png');
+			expect((result[0][0].json as Record<string, unknown>).hasCover).toBe(true);
+		});
+
+		it('should set hasCover=false when no cover is configured', async () => {
+			const bundle = makeExecuteFunctionsMock({ parameters: buildParams() });
+			const result = await runExecute(bundle);
+			expect((result[0][0].json as Record<string, unknown>).hasCover).toBe(false);
+		});
+
+		it('should prefer the binary cover over the URL cover when both are set', async () => {
+			const bundle = makeExecuteFunctionsMock({
+				parameters: buildParams({
+					additionalFields: {
+						...defaultAdditional,
+						coverBinaryProperty: 'cover',
+						coverUrl: 'https://example.com/cover.png',
+					},
+				}),
+				assertBinaryData: () => ({ mimeType: 'image/png' }),
+				getBinaryDataBuffer: async () => Buffer.from(pngPixel),
+			});
+			const result = await runExecute(bundle);
+			expect(bundle.calls.httpRequest).toHaveLength(0);
+			expect(bundle.calls.getBinaryDataBuffer[0]).toEqual({ itemIndex: 0, property: 'cover' });
+			expect((result[0][0].json as Record<string, unknown>).hasCover).toBe(true);
+		});
+
+		it('should throw NodeOperationError with itemIndex when the binary cover exceeds imageMaxBytes', async () => {
+			const bundle = makeExecuteFunctionsMock({
+				parameters: buildParams({
+					additionalFields: {
+						...defaultAdditional,
+						coverBinaryProperty: 'cover',
+						imageMaxBytes: 10,
+					},
+				}),
+				assertBinaryData: () => ({ mimeType: 'image/png' }),
+				getBinaryDataBuffer: async () => Buffer.alloc(100),
+			});
+			const err = await runExecute(bundle).catch((e) => e as unknown);
+			expect(err).toBeInstanceOf(NodeOperationError);
+			expect((err as Error).message).toMatch(/Cover image exceeds the maximum allowed size/);
+			expect((err as { context?: { itemIndex?: number } }).context?.itemIndex).toBe(0);
+		});
+
+		it('should propagate fetchCoverImage errors (e.g. URL cover too large)', async () => {
+			const bundle = makeExecuteFunctionsMock({
+				parameters: buildParams({
+					additionalFields: {
+						...defaultAdditional,
+						coverUrl: 'https://example.com/huge.png',
+						imageMaxBytes: 10,
+					},
+				}),
+				httpRequest: async () => ({
+					body: Buffer.alloc(100),
+					headers: { 'content-type': 'image/png' },
+				}),
+			});
+			const err = await runExecute(bundle).catch((e) => e as unknown);
+			expect(err).toBeInstanceOf(NodeOperationError);
+			expect((err as Error).message).toMatch(/larger than the configured maximum/);
 		});
 	});
 });

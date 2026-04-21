@@ -7,7 +7,14 @@ import type {
 import { NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
 
 import { buildEpub, type EpubInput } from './epub';
-import { extractImageUrls, fetchImages, rewriteImgSrc } from './images';
+import {
+	coverFromBinary,
+	extractImageUrls,
+	fetchCoverImage,
+	fetchImages,
+	rewriteImgSrc,
+	type FetchedImage,
+} from './images';
 
 type InputSource = 'string' | 'binary';
 
@@ -125,6 +132,22 @@ export class HtmlToEpub implements INodeType {
 						placeholder: 'body { font-family: Georgia, serif; }',
 						description:
 							'Extra CSS bundled into the EPUB as style.css. Combined with the built-in stylesheet according to CSS Mode.',
+						displayName: 'Cover Binary Property',
+						name: 'coverBinaryProperty',
+						type: 'string',
+						default: '',
+						placeholder: 'cover',
+						description:
+							'Name of a binary property on the input item to use as the book cover. Takes precedence over Cover URL.',
+					},
+					{
+						displayName: 'Cover URL',
+						name: 'coverUrl',
+						type: 'string',
+						default: '',
+						placeholder: 'https://example.com/cover.jpg',
+						description:
+							'URL of an image to download and use as the book cover. Ignored when Cover Binary Property is set.',
 					},
 					{
 						displayName: 'Description',
@@ -210,6 +233,8 @@ export class HtmlToEpub implements INodeType {
 					author?: string;
 					cssMode?: 'append' | 'replace';
 					customCss?: string;
+					coverBinaryProperty?: string;
+					coverUrl?: string;
 					description?: string;
 					fileName?: string;
 					identifier?: string;
@@ -248,6 +273,9 @@ export class HtmlToEpub implements INodeType {
 					);
 				}
 
+				const imageTimeoutMs = additionalFields.imageTimeoutMs ?? 30000;
+				const imageMaxBytes = additionalFields.imageMaxBytes ?? 10 * 1024 * 1024;
+
 				let finalHtml = html;
 				const fetchedImages = [];
 				const inlineImages = additionalFields.inlineImages ?? true;
@@ -255,13 +283,38 @@ export class HtmlToEpub implements INodeType {
 					const urls = extractImageUrls(html);
 					if (urls.length > 0) {
 						const imageMap = await fetchImages(this, urls, {
-							timeoutMs: additionalFields.imageTimeoutMs ?? 30000,
-							maxBytes: additionalFields.imageMaxBytes ?? 10 * 1024 * 1024,
+							timeoutMs: imageTimeoutMs,
+							maxBytes: imageMaxBytes,
 							userAgent: 'n8n-nodes-epub/1.0',
 						});
 						finalHtml = rewriteImgSrc(html, imageMap);
 						for (const img of imageMap.values()) fetchedImages.push(img);
 					}
+				}
+
+				let cover: FetchedImage | undefined;
+				const coverBinaryProperty = additionalFields.coverBinaryProperty?.trim();
+				const coverUrl = additionalFields.coverUrl?.trim();
+				if (coverBinaryProperty) {
+					const binary = this.helpers.assertBinaryData(itemIndex, coverBinaryProperty);
+					const buffer = await this.helpers.getBinaryDataBuffer(
+						itemIndex,
+						coverBinaryProperty,
+					);
+					if (buffer.length > imageMaxBytes) {
+						throw new NodeOperationError(
+							this.getNode(),
+							`Cover image exceeds the maximum allowed size of ${imageMaxBytes} bytes`,
+							{ itemIndex },
+						);
+					}
+					cover = coverFromBinary(new Uint8Array(buffer), binary.mimeType || '');
+				} else if (coverUrl) {
+					cover = await fetchCoverImage(this, coverUrl, {
+						timeoutMs: imageTimeoutMs,
+						maxBytes: imageMaxBytes,
+						userAgent: 'n8n-nodes-epub/1.0',
+					});
 				}
 
 				const epubInput: EpubInput = {
@@ -275,6 +328,7 @@ export class HtmlToEpub implements INodeType {
 					images: fetchedImages,
 					customCss: additionalFields.customCss,
 					cssMode: additionalFields.cssMode,
+					cover,
 				};
 
 				const epubBytes = buildEpub(epubInput);
@@ -292,6 +346,7 @@ export class HtmlToEpub implements INodeType {
 						size: epubBytes.length,
 						title,
 						imagesBundled: fetchedImages.length,
+						hasCover: cover != null,
 					},
 					binary: { [outputBinaryProperty]: binaryData },
 					pairedItem: { item: itemIndex },

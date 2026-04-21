@@ -417,6 +417,56 @@ describe('nodes/HtmlToEpub/epub.ts', () => {
 				expect(css.startsWith('@import url("a.css");')).toBe(true);
 				expect(css).not.toContain('BlinkMacSystemFont');
 			});
+		it('should embed the cover page, image, and OPF metadata when input.cover is set', () => {
+			const cover: FetchedImage = {
+				id: 'cover-image',
+				localPath: 'images/cover.png',
+				mimeType: 'image/png',
+				data: new Uint8Array(pngPixel),
+			};
+			const out = buildEpub({ ...baseInput, cover });
+
+			expect(extractFile(out, 'OEBPS/cover.xhtml')).not.toBeNull();
+			expect(extractFile(out, 'OEBPS/images/cover.png')).not.toBeNull();
+
+			const opf = extractFile(out, 'OEBPS/content.opf')!;
+			expect(opf).toContain(
+				'<item id="cover-image" properties="cover-image" href="images/cover.png" media-type="image/png"/>',
+			);
+			expect(opf).toContain(
+				'<item id="cover-page" href="cover.xhtml" media-type="application/xhtml+xml"/>',
+			);
+			expect(opf).toContain('<itemref idref="cover-page"/>');
+			// EPUB 2 fallback meta so older readers still recognise the cover.
+			expect(opf).toContain('<meta name="cover" content="cover-image"/>');
+			expect(opf).toContain('<reference type="cover" title="Cover" href="cover.xhtml"/>');
+		});
+
+		it('should omit cover-related OPF entries when input.cover is undefined', () => {
+			const out = buildEpub(baseInput);
+			expect(extractFile(out, 'OEBPS/cover.xhtml')).toBeNull();
+			const opf = extractFile(out, 'OEBPS/content.opf')!;
+			expect(opf).not.toContain('cover-image');
+			expect(opf).not.toContain('cover.xhtml');
+		});
+
+		it('should XML-escape cover.localPath and cover.mimeType in OPF attributes and cover.xhtml', () => {
+			// A pathological cover that an external caller could theoretically construct.
+			// Current callers build safe values, but buildEpub/EpubInput are exported.
+			const cover: FetchedImage = {
+				id: 'cover-image',
+				localPath: `images/cover".jpg`,
+				mimeType: `image/jpeg" injected="x`,
+				data: new Uint8Array(pngPixel),
+			};
+			const out = buildEpub({ ...baseInput, cover });
+			const opf = extractFile(out, 'OEBPS/content.opf')!;
+			const coverXhtml = extractFile(out, 'OEBPS/cover.xhtml')!;
+			for (const doc of [opf, coverXhtml]) {
+				expect(doc).not.toContain('" injected="');
+				expect(doc).not.toContain(`cover".jpg`);
+			}
+			expect(opf).toContain('&quot;');
 		});
 	});
 });

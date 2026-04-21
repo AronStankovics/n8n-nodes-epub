@@ -148,6 +148,7 @@ export interface ExecuteMockOptions {
 		fileName?: string,
 		mimeType?: string,
 	) => Promise<Record<string, unknown>>;
+	assertBinaryData?: (itemIndex: number, property: string) => { mimeType?: string };
 }
 
 export interface ExecuteMock {
@@ -203,6 +204,10 @@ export function makeExecuteFunctionsMock(opts: ExecuteMockOptions = {}): Execute
 			fileSize: data.length,
 		}));
 
+	const assertBinaryData =
+		opts.assertBinaryData ??
+		((): { mimeType?: string } => ({ mimeType: 'application/octet-stream' }));
+
 	const mock = {
 		getInputData: () => opts.inputData ?? ([{ json: {} }] as INodeExecutionData[]),
 		getNode: () => ({
@@ -229,6 +234,8 @@ export function makeExecuteFunctionsMock(opts: ExecuteMockOptions = {}): Execute
 				calls.prepareBinaryData.push({ fileName, mimeType, size: data.length });
 				return prepareBinaryData(data, fileName, mimeType);
 			},
+			assertBinaryData: (itemIndex: number, property: string) =>
+				assertBinaryData(itemIndex, property),
 		},
 	};
 
