@@ -1,0 +1,65 @@
+name: test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ['ubuntu-latest', 'windows-latest']
+        node_version: ['20', '22']
+    name: Node ${{ matrix.node_version }} on ${{ matrix.os }}
+
+    permissions:
+      # Only needs to checkout code; Coveralls uploads via its own service token.
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node_version }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        # --ignore-scripts skips native postinstalls (notably isolated-vm, a
+        # transitive dep of @n8n/node-cli that fails to compile on some
+        # Node 20.x V8 headers). We don't exercise isolated-vm from the test
+        # suite or the lint step, so skipping its build is safe.
+        run: npm ci --ignore-scripts
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test with coverage
+        run: npm run coverage
+
+      - name: Upload coverage to Coveralls
+        uses: coverallsapp/github-action@v2
+        continue-on-error: true
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          flag-name: Node-${{ matrix.node_version }}-${{ matrix.os }}
+          parallel: true
+
+  report-coverage:
+    name: Finalize coverage report
+    needs: test
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Coveralls finished
+        uses: coverallsapp/github-action@v2
+        continue-on-error: true
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          parallel-finished: true
