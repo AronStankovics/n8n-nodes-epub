@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { buildEpub, htmlToXhtmlBody, xmlEscape } from '../nodes/HtmlToEpub/epub';
 import type { FetchedImage } from '../nodes/HtmlToEpub/images';
 import {
+	extractZipEntry,
 	htmlWithEventHandlers,
 	htmlWithScripts,
 	htmlWithVoidElements,
@@ -12,8 +13,6 @@ import {
 	pngPixel,
 	simpleHtml,
 } from './test-data';
-
-const decoder = new TextDecoder('utf-8');
 
 describe('nodes/HtmlToEpub/epub.ts', () => {
 	describe('xmlEscape()', () => {
@@ -122,42 +121,7 @@ describe('nodes/HtmlToEpub/epub.ts', () => {
 	});
 
 	describe('buildEpub()', () => {
-		function extractFile(bytes: Uint8Array, name: string): string | null {
-			const nameBytes = new TextEncoder().encode(name);
-			const SIG = [0x50, 0x4b, 0x03, 0x04];
-			for (let i = 0; i < bytes.length - 30; i++) {
-				if (
-					bytes[i] === SIG[0] &&
-					bytes[i + 1] === SIG[1] &&
-					bytes[i + 2] === SIG[2] &&
-					bytes[i + 3] === SIG[3]
-				) {
-					const dv = new DataView(bytes.buffer, bytes.byteOffset + i);
-					const compSize = dv.getUint32(18, true);
-					const nameLen = dv.getUint16(26, true);
-					const extraLen = dv.getUint16(28, true);
-					const entryName = decoder.decode(bytes.subarray(i + 30, i + 30 + nameLen));
-					if (entryName === name) {
-						const dataStart = i + 30 + nameLen + extraLen;
-						return decoder.decode(bytes.subarray(dataStart, dataStart + compSize));
-					}
-					i = i + 30 + nameLen + extraLen + compSize - 1;
-				}
-			}
-			if (name === 'mimetype') {
-				for (let i = 0; i < bytes.length - nameBytes.length; i++) {
-					let ok = true;
-					for (let j = 0; j < nameBytes.length; j++) {
-						if (bytes[i + j] !== nameBytes[j]) {
-							ok = false;
-							break;
-						}
-					}
-					if (ok) return decoder.decode(bytes.subarray(i, i + nameBytes.length));
-				}
-			}
-			return null;
-		}
+		const extractFile = extractZipEntry;
 
 		const baseInput = {
 			title: 'My Book',

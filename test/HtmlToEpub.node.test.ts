@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 import { HtmlToEpub } from '../nodes/HtmlToEpub/HtmlToEpub.node';
 import {
+	extractZipEntry,
 	htmlWithImages,
 	makeExecuteFunctionsMock,
 	pngPixel,
@@ -35,31 +36,6 @@ function buildParams(overrides: Params = {}): Params {
 async function runExecute(mockBundle: ExecuteMock) {
 	const node = new HtmlToEpub();
 	return node.execute.call(mockBundle.mock);
-}
-
-const TEXT_DECODER = new TextDecoder('utf-8');
-
-function extractZipEntry(bytes: Uint8Array, name: string): string | null {
-	for (let i = 0; i < bytes.length - 30; i++) {
-		if (
-			bytes[i] === 0x50 &&
-			bytes[i + 1] === 0x4b &&
-			bytes[i + 2] === 0x03 &&
-			bytes[i + 3] === 0x04
-		) {
-			const dv = new DataView(bytes.buffer, bytes.byteOffset + i);
-			const compSize = dv.getUint32(18, true);
-			const nameLen = dv.getUint16(26, true);
-			const extraLen = dv.getUint16(28, true);
-			const entryName = TEXT_DECODER.decode(bytes.subarray(i + 30, i + 30 + nameLen));
-			if (entryName === name) {
-				const dataStart = i + 30 + nameLen + extraLen;
-				return TEXT_DECODER.decode(bytes.subarray(dataStart, dataStart + compSize));
-			}
-			i = i + 30 + nameLen + extraLen + compSize - 1;
-		}
-	}
-	return null;
 }
 
 function captureEpubBuffer(): {
