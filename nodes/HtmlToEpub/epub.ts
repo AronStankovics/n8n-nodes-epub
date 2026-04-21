@@ -12,6 +12,17 @@ export interface EpubInput {
 	publisher?: string;
 	description?: string;
 	images?: FetchedImage[];
+	generateTocFromHeadings?: boolean;
+}
+
+interface Heading {
+	level: 1 | 2 | 3;
+	id: string;
+	text: string;
+}
+
+interface HeadingNode extends Heading {
+	children: HeadingNode[];
 }
 
 const DEFAULT_STYLE = `body {
@@ -113,9 +124,124 @@ export function htmlToXhtmlBody(html: string): string {
 	return body.trim();
 }
 
-function renderChapter(input: EpubInput): string {
+const HEADING_RE = /<(h[1-3])\b([^>]*)>([\s\S]*?)<\/\1\s*>/gi;
+const ID_ATTR_RE = /\bid\s*=\s*(?:"([^"]+)"|'([^']+)'|(\S+))/i;
+
+function decodeBasicEntities(s: string): string {
+	return s
+		.replace(/&lt;/g, '<')
+		.replace(/&gt;/g, '>')
+		.replace(/&quot;/g, '"')
+		.replace(/&apos;/g, "'")
+		.replace(/&nbsp;/g, ' ')
+		.replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)))
+		.replace(/&#x([0-9a-fA-F]+);/g, (_, n) => String.fromCharCode(parseInt(n, 16)))
+		.replace(/&amp;/g, '&');
+}
+
+function slugify(text: string): string {
+	return text
+		.toLowerCase()
+		.replace(/[^a-z0-9\s-]/g, '')
+		.replace(/\s+/g, '-')
+		.replace(/-+/g, '-')
+		.replace(/^-|-$/g, '');
+}
+
+// Walk `<h1>`–`<h3>` tags, assign synthetic IDs where missing, and collect a
+// flat ordered list of headings. The returned `annotatedHtml` is identical to
+// the input except for the injected `id` attributes, so the chapter XHTML and
+// the TOC point at matching anchors.
+function extractHeadings(html: string): { annotatedHtml: string; headings: Heading[] } {
+	const headings: Heading[] = [];
+	const used = new Set<string>();
+	let fallback = 0;
+
+	const annotated = html.replace(HEADING_RE, (_match, tag: string, attrs: string, inner: string) => {
+		const level = parseInt(tag[1], 10) as 1 | 2 | 3;
+		const text = decodeBasicEntities(inner.replace(/<[^>]*>/g, ''))
+			.replace(/\s+/g, ' ')
+			.trim();
+
+		const idMatch = attrs.match(ID_ATTR_RE);
+		const existingId = idMatch ? idMatch[1] || idMatch[2] || idMatch[3] || '' : '';
+		let id: string;
+		let newAttrs = attrs;
+		if (existingId) {
+			id = existingId;
+		} else {
+			const base = slugify(text) || `heading-${++fallback}`;
+			let candidate = base;
+			let n = 2;
+			while (used.has(candidate)) candidate = `${base}-${n++}`;
+			id = candidate;
+			newAttrs = `${attrs} id="${id}"`;
+		}
+		used.add(id);
+		headings.push({ level, id, text });
+		return `<${tag}${newAttrs}>${inner}</${tag}>`;
+	});
+
+	return { annotatedHtml: annotated, headings };
+}
+
+function buildHeadingTree(headings: Heading[]): HeadingNode[] {
+	const roots: HeadingNode[] = [];
+	const stack: HeadingNode[] = [];
+	for (const h of headings) {
+		const node: HeadingNode = { ...h, children: [] };
+		while (stack.length > 0 && stack[stack.length - 1].level >= h.level) stack.pop();
+		if (stack.length === 0) roots.push(node);
+		else stack[stack.length - 1].children.push(node);
+		stack.push(node);
+	}
+	return roots;
+}
+
+function renderTocNav(nodes: HeadingNode[], chapterHref: string): string {
+	if (nodes.length === 0) return '';
+	const items = nodes
+		.map((n) => {
+			const sub = n.children.length > 0 ? `\n${renderTocNav(n.children, chapterHref)}` : '';
+			return `<li><a href="${chapterHref}#${n.id}">${xmlEscape(n.text)}</a>${sub}</li>`;
+		})
+		.join('\n');
+	return `<ol>\n${items}\n</ol>`;
+}
+
+function renderNcxNavPoints(
+	nodes: HeadingNode[],
+	chapterHref: string,
+	counter: { n: number },
+): string {
+	return nodes
+		.map((node) => {
+			counter.n += 1;
+			const playOrder = counter.n;
+			const children =
+				node.children.length > 0
+					? `\n${renderNcxNavPoints(node.children, chapterHref, counter)}`
+					: '';
+			return `<navPoint id="nav-${playOrder}" playOrder="${playOrder}">
+<navLabel><text>${xmlEscape(node.text)}</text></navLabel>
+<content src="${chapterHref}#${node.id}"/>${children}
+</navPoint>`;
+		})
+		.join('\n');
+}
+
+function treeDepth(nodes: HeadingNode[]): number {
+	if (nodes.length === 0) return 0;
+	let max = 1;
+	for (const n of nodes) {
+		if (n.children.length > 0) max = Math.max(max, 1 + treeDepth(n.children));
+	}
+	return max;
+}
+
+function renderChapter(input: EpubInput, htmlOverride?: string): string {
 	const title = xmlEscape(input.title);
-	const bodyHtml = htmlToXhtmlBody(input.html);
+	const bodyHtml = htmlToXhtmlBody(htmlOverride ?? input.html);
 	const byline = input.author
 		? `<p class="byline">By ${xmlEscape(input.author)}</p>\n<hr/>\n`
 		: '';
@@ -189,9 +315,11 @@ ${imageItems}
 `;
 }
 
-function renderToc(input: EpubInput): string {
+function renderToc(input: EpubInput, headings: Heading[]): string {
 	const lang = input.language || 'en';
 	const title = xmlEscape(input.title);
+	const tree = buildHeadingTree(headings);
+	const subNav = tree.length > 0 ? `\n${renderTocNav(tree, 'article_content.xhtml')}\n` : '';
 	return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="${lang}" lang="${lang}">
@@ -205,8 +333,7 @@ function renderToc(input: EpubInput): string {
 <nav id="toc" epub:type="toc">
 <ol class="toc-list">
 <li class="table-of-content">
-<a href="article_content.xhtml">1. ${title}</a>
-</li>
+<a href="article_content.xhtml">1. ${title}</a>${subNav}</li>
 </ol>
 </nav>
 </body>
@@ -214,13 +341,19 @@ function renderToc(input: EpubInput): string {
 `;
 }
 
-function renderNcx(input: EpubInput, uid: string): string {
+function renderNcx(input: EpubInput, uid: string, headings: Heading[]): string {
 	const title = xmlEscape(input.title);
+	const tree = buildHeadingTree(headings);
+	// Chapter is depth 1; each extra level of headings adds one to dtb:depth.
+	const depth = 1 + treeDepth(tree);
+	const counter = { n: 1 };
+	const nested =
+		tree.length > 0 ? `\n${renderNcxNavPoints(tree, 'article_content.xhtml', counter)}` : '';
 	return `<?xml version="1.0" encoding="UTF-8"?>
 <ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
 <head>
 <meta name="dtb:uid" content="urn:uuid:${uid}"/>
-<meta name="dtb:depth" content="1"/>
+<meta name="dtb:depth" content="${depth}"/>
 <meta name="dtb:totalPageCount" content="0"/>
 <meta name="dtb:maxPageNumber" content="0"/>
 </head>
@@ -228,7 +361,7 @@ function renderNcx(input: EpubInput, uid: string): string {
 <navMap>
 <navPoint id="chapter-1" playOrder="1">
 <navLabel><text>1. ${title}</text></navLabel>
-<content src="article_content.xhtml"/>
+<content src="article_content.xhtml"/>${nested}
 </navPoint>
 </navMap>
 </ncx>
@@ -248,13 +381,21 @@ export function buildEpub(input: EpubInput): Uint8Array {
 	const encoder = new TextEncoder();
 	const images = input.images || [];
 
+	let chapterHtml = input.html;
+	let headings: Heading[] = [];
+	if (input.generateTocFromHeadings ?? true) {
+		const extracted = extractHeadings(input.html);
+		chapterHtml = extracted.annotatedHtml;
+		headings = extracted.headings;
+	}
+
 	const entries: ZipEntry[] = [
 		{ path: 'mimetype', data: encoder.encode('application/epub+zip') },
 		{ path: 'META-INF/container.xml', data: encoder.encode(CONTAINER_XML) },
 		{ path: 'OEBPS/content.opf', data: encoder.encode(renderOpf(input, uid, images)) },
-		{ path: 'OEBPS/toc.xhtml', data: encoder.encode(renderToc(input)) },
-		{ path: 'OEBPS/toc.ncx', data: encoder.encode(renderNcx(input, uid)) },
-		{ path: 'OEBPS/article_content.xhtml', data: encoder.encode(renderChapter(input)) },
+		{ path: 'OEBPS/toc.xhtml', data: encoder.encode(renderToc(input, headings)) },
+		{ path: 'OEBPS/toc.ncx', data: encoder.encode(renderNcx(input, uid, headings)) },
+		{ path: 'OEBPS/article_content.xhtml', data: encoder.encode(renderChapter(input, chapterHtml)) },
 		{ path: 'OEBPS/style.css', data: encoder.encode(DEFAULT_STYLE) },
 	];
 

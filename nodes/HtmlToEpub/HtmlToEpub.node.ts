@@ -120,6 +120,14 @@ export class HtmlToEpub implements INodeType {
 							'Override the output file name. Defaults to the title plus ".epub".',
 					},
 					{
+						displayName: 'Generate TOC From Headings',
+						name: 'generateTocFromHeadings',
+						type: 'boolean',
+						default: true,
+						description:
+							'Whether to extract h1–h3 tags from the article and add them as nested entries in the table of contents. Auto-generates IDs on headings that don\'t already have one.',
+					},
+					{
 						displayName: 'Identifier (UUID)',
 						name: 'identifier',
 						type: 'string',
@@ -179,6 +187,7 @@ export class HtmlToEpub implements INodeType {
 					author?: string;
 					description?: string;
 					fileName?: string;
+					generateTocFromHeadings?: boolean;
 					identifier?: string;
 					imageMaxBytes?: number;
 					imageTimeoutMs?: number;
@@ -240,6 +249,7 @@ export class HtmlToEpub implements INodeType {
 					language: additionalFields.language?.trim() || undefined,
 					publisher: additionalFields.publisher?.trim() || undefined,
 					images: fetchedImages,
+					generateTocFromHeadings: additionalFields.generateTocFromHeadings,
 				};
 
 				const epubBytes = buildEpub(epubInput);
