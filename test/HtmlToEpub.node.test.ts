@@ -37,6 +37,58 @@ async function runExecute(mockBundle: ExecuteMock) {
 	return node.execute.call(mockBundle.mock);
 }
 
+const TEXT_DECODER = new TextDecoder('utf-8');
+
+function extractZipEntry(bytes: Uint8Array, name: string): string | null {
+	for (let i = 0; i < bytes.length - 30; i++) {
+		if (
+			bytes[i] === 0x50 &&
+			bytes[i + 1] === 0x4b &&
+			bytes[i + 2] === 0x03 &&
+			bytes[i + 3] === 0x04
+		) {
+			const dv = new DataView(bytes.buffer, bytes.byteOffset + i);
+			const compSize = dv.getUint32(18, true);
+			const nameLen = dv.getUint16(26, true);
+			const extraLen = dv.getUint16(28, true);
+			const entryName = TEXT_DECODER.decode(bytes.subarray(i + 30, i + 30 + nameLen));
+			if (entryName === name) {
+				const dataStart = i + 30 + nameLen + extraLen;
+				return TEXT_DECODER.decode(bytes.subarray(dataStart, dataStart + compSize));
+			}
+			i = i + 30 + nameLen + extraLen + compSize - 1;
+		}
+	}
+	return null;
+}
+
+function captureEpubBuffer(): {
+	prepareBinaryData: (
+		data: Buffer,
+		fileName?: string,
+		mimeType?: string,
+	) => Promise<Record<string, unknown>>;
+	get: () => Buffer;
+} {
+	let captured: Buffer | null = null;
+	return {
+		prepareBinaryData: async (data, fileName, mimeType) => {
+			captured = Buffer.from(data);
+			return {
+				data: captured.toString('base64'),
+				mimeType: mimeType ?? 'application/octet-stream',
+				fileName,
+				fileExtension: fileName?.split('.').pop(),
+				fileSize: captured.length,
+			};
+		},
+		get: () => {
+			if (!captured) throw new Error('prepareBinaryData was never called');
+			return captured;
+		},
+	};
+}
+
 describe('nodes/HtmlToEpub/HtmlToEpub.node.ts', () => {
 	describe('description metadata', () => {
 		it('should define a valid node description', () => {
@@ -275,6 +327,112 @@ describe('nodes/HtmlToEpub/HtmlToEpub.node.ts', () => {
 			});
 			await runExecute(bundle);
 			expect(bundle.calls.httpRequest[0].timeout).toBe(1234);
+		});
+	});
+
+	describe('description — Additional Fields', () => {
+		it('should expose Custom CSS and CSS Mode fields with the expected options', () => {
+			const node = new HtmlToEpub();
+			const additionalFields = node.description.properties.find(
+				(p) => p.name === 'additionalFields',
+			);
+			expect(additionalFields).toBeDefined();
+			const options = (additionalFields as { options?: Array<Record<string, unknown>> }).options!;
+			const optionNames = options.map((o) => o.name);
+			expect(optionNames).toEqual(expect.arrayContaining(['cssMode', 'customCss']));
+
+			const cssMode = options.find((o) => o.name === 'cssMode') as {
+				type: string;
+				default: string;
+				options: Array<{ value: string }>;
+			};
+			expect(cssMode.type).toBe('options');
+			expect(cssMode.default).toBe('append');
+			expect(cssMode.options.map((o) => o.value).sort()).toEqual(['append', 'replace']);
+
+			const customCss = options.find((o) => o.name === 'customCss') as {
+				type: string;
+				default: string;
+				typeOptions?: { rows?: number };
+			};
+			expect(customCss.type).toBe('string');
+			expect(customCss.default).toBe('');
+			expect(customCss.typeOptions?.rows).toBeGreaterThan(1);
+		});
+	});
+
+	describe('execute() — custom CSS', () => {
+		const customCss = 'body { font-family: Georgia, serif; } .note { color: tomato; }';
+
+		it('should bundle custom CSS after the default stylesheet by default (append)', async () => {
+			const capture = captureEpubBuffer();
+			const bundle = makeExecuteFunctionsMock({
+				parameters: buildParams({
+					additionalFields: { ...defaultAdditional, customCss },
+				}),
+				prepareBinaryData: capture.prepareBinaryData,
+			});
+			await runExecute(bundle);
+			const css = extractZipEntry(capture.get(), 'OEBPS/style.css');
+			expect(css).not.toBeNull();
+			expect(css!).toContain('.toc-list');
+			expect(css!).toContain('Georgia, serif');
+			expect(css!.indexOf('.toc-list')).toBeLessThan(css!.indexOf('Georgia, serif'));
+		});
+
+		it('should replace the default stylesheet when cssMode=replace', async () => {
+			const capture = captureEpubBuffer();
+			const bundle = makeExecuteFunctionsMock({
+				parameters: buildParams({
+					additionalFields: { ...defaultAdditional, customCss, cssMode: 'replace' },
+				}),
+				prepareBinaryData: capture.prepareBinaryData,
+			});
+			await runExecute(bundle);
+			const css = extractZipEntry(capture.get(), 'OEBPS/style.css');
+			expect(css).not.toBeNull();
+			expect(css!).toContain('Georgia, serif');
+			expect(css!).not.toContain('.toc-list');
+			expect(css!).not.toContain('BlinkMacSystemFont');
+		});
+
+		it('should ignore empty customCss and emit the default stylesheet only', async () => {
+			const capture = captureEpubBuffer();
+			const bundle = makeExecuteFunctionsMock({
+				parameters: buildParams({
+					additionalFields: { ...defaultAdditional, customCss: '', cssMode: 'replace' },
+				}),
+				prepareBinaryData: capture.prepareBinaryData,
+			});
+			await runExecute(bundle);
+			const css = extractZipEntry(capture.get(), 'OEBPS/style.css')!;
+			expect(css).toContain('.toc-list');
+			expect(css).toContain('BlinkMacSystemFont');
+		});
+
+		it('should treat whitespace-only customCss as unset', async () => {
+			const capture = captureEpubBuffer();
+			const bundle = makeExecuteFunctionsMock({
+				parameters: buildParams({
+					additionalFields: { ...defaultAdditional, customCss: '   \n\t  ', cssMode: 'replace' },
+				}),
+				prepareBinaryData: capture.prepareBinaryData,
+			});
+			await runExecute(bundle);
+			const css = extractZipEntry(capture.get(), 'OEBPS/style.css')!;
+			expect(css).toContain('.toc-list');
+		});
+
+		it('should emit only the default stylesheet when customCss is omitted', async () => {
+			const capture = captureEpubBuffer();
+			const bundle = makeExecuteFunctionsMock({
+				parameters: buildParams(),
+				prepareBinaryData: capture.prepareBinaryData,
+			});
+			await runExecute(bundle);
+			const css = extractZipEntry(capture.get(), 'OEBPS/style.css')!;
+			expect(css).toContain('.toc-list');
+			expect(css).not.toContain('Georgia, serif');
 		});
 	});
 });

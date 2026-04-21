@@ -283,5 +283,87 @@ describe('nodes/HtmlToEpub/epub.ts', () => {
 			const opf = extractFile(out, 'OEBPS/content.opf');
 			expect(opf!).toMatch(/urn:uuid:[0-9a-f-]{36}/);
 		});
+
+		describe('custom CSS', () => {
+			const customCss = 'body { font-family: Georgia, serif; } p { color: tomato; }';
+
+			it('should emit only the default stylesheet when customCss is not supplied', () => {
+				const out = buildEpub(baseInput);
+				const css = extractFile(out, 'OEBPS/style.css');
+				expect(css).not.toBeNull();
+				expect(css!).toContain('font-family');
+				expect(css!).toContain('.toc-list');
+				expect(css!).not.toContain('tomato');
+			});
+
+			it('should append customCss after the default stylesheet by default', () => {
+				const out = buildEpub({ ...baseInput, customCss });
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				expect(css).toContain('.toc-list');
+				expect(css).toContain('tomato');
+				expect(css.indexOf('.toc-list')).toBeLessThan(css.indexOf('tomato'));
+			});
+
+			it('should append customCss after the default when cssMode=append', () => {
+				const out = buildEpub({ ...baseInput, customCss, cssMode: 'append' });
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				expect(css).toContain('.toc-list');
+				expect(css).toContain('Georgia, serif');
+				expect(css.indexOf('.toc-list')).toBeLessThan(css.indexOf('Georgia, serif'));
+			});
+
+			it('should drop the default stylesheet when cssMode=replace', () => {
+				const out = buildEpub({ ...baseInput, customCss, cssMode: 'replace' });
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				expect(css).toContain('tomato');
+				expect(css).not.toContain('.toc-list');
+				expect(css).not.toContain('BlinkMacSystemFont');
+			});
+
+			it('should ignore empty customCss and emit the default stylesheet', () => {
+				const out = buildEpub({ ...baseInput, customCss: '', cssMode: 'replace' });
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				expect(css).toContain('.toc-list');
+				expect(css).toContain('BlinkMacSystemFont');
+			});
+
+			it('should treat whitespace-only customCss as unset even in replace mode', () => {
+				const out = buildEpub({ ...baseInput, customCss: '   \n\t  ', cssMode: 'replace' });
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				expect(css).toContain('.toc-list');
+				expect(css).toContain('BlinkMacSystemFont');
+			});
+
+			it('should trim surrounding whitespace on customCss before bundling', () => {
+				const out = buildEpub({
+					...baseInput,
+					customCss: '\n\n  p { color: red; }  \n\n',
+					cssMode: 'replace',
+				});
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				expect(css.startsWith('p { color: red; }')).toBe(true);
+				expect(css.endsWith('\n')).toBe(true);
+			});
+
+			it('should keep the stylesheet manifest entry regardless of CSS mode', () => {
+				for (const mode of ['append', 'replace'] as const) {
+					const out = buildEpub({ ...baseInput, customCss, cssMode: mode });
+					const opf = extractFile(out, 'OEBPS/content.opf')!;
+					expect(opf).toContain('<item id="css" href="style.css" media-type="text/css"/>');
+				}
+			});
+
+			it('should not double-escape CSS content (style.css is not XML-escaped)', () => {
+				const out = buildEpub({
+					...baseInput,
+					customCss: 'a[href^="https://"] { color: green; }',
+					cssMode: 'replace',
+				});
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				expect(css).toContain('a[href^="https://"]');
+				expect(css).not.toContain('&quot;');
+				expect(css).not.toContain('&amp;');
+			});
+		});
 	});
 });
