@@ -147,8 +147,9 @@ describe('nodes/HtmlToEpub/HtmlToEpub.node.ts', () => {
 				parameters: buildParams({ inputSource: 'binary' }),
 				getBinaryDataBuffer: async () => Buffer.from(''),
 			});
-			await expect(runExecute(bundle)).rejects.toBeInstanceOf(NodeOperationError);
-			await expect(runExecute(bundle)).rejects.toThrow(/HTML input is empty/);
+			const err = await runExecute(bundle).catch((e) => e as unknown);
+			expect(err).toBeInstanceOf(NodeOperationError);
+			expect((err as Error).message).toMatch(/HTML input is empty/);
 		});
 	});
 
@@ -157,24 +158,27 @@ describe('nodes/HtmlToEpub/HtmlToEpub.node.ts', () => {
 			const bundle = makeExecuteFunctionsMock({
 				parameters: buildParams({ title: '' }),
 			});
-			await expect(runExecute(bundle)).rejects.toBeInstanceOf(NodeOperationError);
-			await expect(runExecute(bundle)).rejects.toThrow(/Title/);
+			const err = await runExecute(bundle).catch((e) => e as unknown);
+			expect(err).toBeInstanceOf(NodeOperationError);
+			expect((err as Error).message).toMatch(/Title/);
 		});
 
 		it('should throw NodeOperationError when title is only whitespace', async () => {
 			const bundle = makeExecuteFunctionsMock({
 				parameters: buildParams({ title: '   \t  ' }),
 			});
-			await expect(runExecute(bundle)).rejects.toBeInstanceOf(NodeOperationError);
-			await expect(runExecute(bundle)).rejects.toThrow(/Title/);
+			const err = await runExecute(bundle).catch((e) => e as unknown);
+			expect(err).toBeInstanceOf(NodeOperationError);
+			expect((err as Error).message).toMatch(/Title/);
 		});
 
 		it('should throw NodeOperationError when HTML is blank', async () => {
 			const bundle = makeExecuteFunctionsMock({
 				parameters: buildParams({ html: '   ' }),
 			});
-			await expect(runExecute(bundle)).rejects.toBeInstanceOf(NodeOperationError);
-			await expect(runExecute(bundle)).rejects.toThrow(/HTML input is empty/);
+			const err = await runExecute(bundle).catch((e) => e as unknown);
+			expect(err).toBeInstanceOf(NodeOperationError);
+			expect((err as Error).message).toMatch(/HTML input is empty/);
 		});
 
 		it('should include itemIndex on the thrown NodeOperationError', async () => {
