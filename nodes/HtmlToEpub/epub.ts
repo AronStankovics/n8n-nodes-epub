@@ -286,7 +286,8 @@ const CONTAINER_XML = `<?xml version="1.0" encoding="UTF-8"?>
 `;
 
 function splitLeadingCssAtRules(css: string): { leading: string[]; rest: string } {
-	const leading: string[] = [];
+	let charset: string | null = null;
+	const imports: string[] = [];
 	let rest = css;
 
 	while (true) {
@@ -294,7 +295,8 @@ function splitLeadingCssAtRules(css: string): { leading: string[]; rest: string 
 
 		const charsetMatch = rest.match(/^@charset\s+(?:"[^"\r\n]*"|'[^'\r\n]*')\s*;/i);
 		if (charsetMatch) {
-			leading.push(charsetMatch[0]);
+			// CSS spec: only the first @charset is honored. Later ones are dropped.
+			if (charset === null) charset = charsetMatch[0];
 			rest = rest.slice(charsetMatch[0].length);
 			continue;
 		}
@@ -303,7 +305,7 @@ function splitLeadingCssAtRules(css: string): { leading: string[]; rest: string 
 			/^@import\s+(?:url\((?:[^()\\]|\\.)*\)|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^;"'\r\n()]*)[^;]*;/i,
 		);
 		if (importMatch) {
-			leading.push(importMatch[0]);
+			imports.push(importMatch[0]);
 			rest = rest.slice(importMatch[0].length);
 			continue;
 		}
@@ -311,6 +313,8 @@ function splitLeadingCssAtRules(css: string): { leading: string[]; rest: string 
 		break;
 	}
 
+	// @charset must precede @import regardless of the order the user wrote them in.
+	const leading = charset ? [charset, ...imports] : imports;
 	return { leading, rest: rest.trim() };
 }
 

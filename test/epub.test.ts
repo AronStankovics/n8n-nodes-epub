@@ -379,9 +379,24 @@ describe('nodes/HtmlToEpub/epub.ts', () => {
 					customCss: '@import "a.css";\n@charset "utf-8";\nbody { color: red; }',
 				});
 				const css = extractFile(out, 'OEBPS/style.css')!;
+				const charsetIdx = css.indexOf('@charset "utf-8";');
+				const importIdx = css.indexOf('@import "a.css";');
 				const defaultIdx = css.indexOf('BlinkMacSystemFont');
-				expect(css.indexOf('@import "a.css";')).toBeLessThan(defaultIdx);
-				expect(css.indexOf('@charset "utf-8";')).toBeLessThan(defaultIdx);
+				expect(charsetIdx).toBeGreaterThanOrEqual(0);
+				expect(importIdx).toBeGreaterThanOrEqual(0);
+				expect(charsetIdx).toBeLessThan(importIdx);
+				expect(importIdx).toBeLessThan(defaultIdx);
+			});
+
+			it('should keep only the first @charset when multiple are supplied', () => {
+				const out = buildEpub({
+					...baseInput,
+					customCss:
+						'@charset "utf-8";\n@charset "iso-8859-1";\nbody { color: red; }',
+				});
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				expect(css).toContain('@charset "utf-8";');
+				expect(css).not.toContain('@charset "iso-8859-1";');
 			});
 
 			it('should not hoist @import that appears after other rules', () => {
