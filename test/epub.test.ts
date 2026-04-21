@@ -1,6 +1,5 @@
 /* eslint-disable */
-import { expect } from 'chai';
-import { TextDecoder } from 'node:util';
+import { describe, expect, it } from 'vitest';
 
 import { buildEpub, htmlToXhtmlBody, xmlEscape } from '../nodes/HtmlToEpub/epub';
 import type { FetchedImage } from '../nodes/HtmlToEpub/images';
@@ -16,115 +15,114 @@ import {
 
 const decoder = new TextDecoder('utf-8');
 
-describe('nodes/HtmlToEpub/epub.ts', function () {
-	describe('xmlEscape()', function () {
-		it('should escape all five XML special characters', function () {
-			expect(xmlEscape(`<a href="x">1 & 2 'q'</a>`)).to.equal(
+describe('nodes/HtmlToEpub/epub.ts', () => {
+	describe('xmlEscape()', () => {
+		it('should escape all five XML special characters', () => {
+			expect(xmlEscape(`<a href="x">1 & 2 'q'</a>`)).toBe(
 				'&lt;a href=&quot;x&quot;&gt;1 &amp; 2 &apos;q&apos;&lt;/a&gt;',
 			);
 		});
 
-		it('should double-escape already-escaped ampersands', function () {
-			expect(xmlEscape('fish &amp; chips')).to.equal('fish &amp;amp; chips');
+		it('should double-escape already-escaped ampersands', () => {
+			expect(xmlEscape('fish &amp; chips')).toBe('fish &amp;amp; chips');
 		});
 
-		it('should return empty string unchanged', function () {
-			expect(xmlEscape('')).to.equal('');
+		it('should return empty string unchanged', () => {
+			expect(xmlEscape('')).toBe('');
 		});
 
-		it('should leave plain text untouched', function () {
-			expect(xmlEscape('hello world 123')).to.equal('hello world 123');
+		it('should leave plain text untouched', () => {
+			expect(xmlEscape('hello world 123')).toBe('hello world 123');
 		});
 	});
 
-	describe('htmlToXhtmlBody()', function () {
-		it('should extract the body when <body> is present', function () {
+	describe('htmlToXhtmlBody()', () => {
+		it('should extract the body when <body> is present', () => {
 			const out = htmlToXhtmlBody(simpleHtml);
-			expect(out).to.include('<h1>Hello</h1>');
-			expect(out).to.include('<strong>bold</strong>');
-			expect(out).to.not.include('Ignore me');
-			expect(out).to.not.include('<title>');
+			expect(out).toContain('<h1>Hello</h1>');
+			expect(out).toContain('<strong>bold</strong>');
+			expect(out).not.toContain('Ignore me');
+			expect(out).not.toContain('<title>');
 		});
 
-		it('should fall back to the raw html when no <body> tag exists', function () {
+		it('should fall back to the raw html when no <body> tag exists', () => {
 			const out = htmlToXhtmlBody('<p>just a paragraph</p>');
-			expect(out).to.include('<p>just a paragraph</p>');
+			expect(out).toContain('<p>just a paragraph</p>');
 		});
 
-		it('should slice after </head> when there is no body', function () {
+		it('should slice after </head> when there is no body', () => {
 			const out = htmlToXhtmlBody('<head><meta charset="utf-8"/></head><p>after</p>');
-			expect(out).to.not.include('<meta');
-			expect(out).to.include('<p>after</p>');
+			expect(out).not.toContain('<meta');
+			expect(out).toContain('<p>after</p>');
 		});
 
-		it('should strip <script>, <iframe>, <style>, and <noscript>', function () {
+		it('should strip <script>, <iframe>, <style>, and <noscript>', () => {
 			const out = htmlToXhtmlBody(htmlWithScripts);
-			expect(out).to.not.include('<script');
-			expect(out).to.not.include("alert('xss')");
-			expect(out).to.not.include('<iframe');
-			expect(out).to.not.include('<style');
-			expect(out).to.not.include('.evil');
-			expect(out).to.include('Before');
-			expect(out).to.include('Middle');
-			expect(out).to.include('After');
+			expect(out).not.toContain('<script');
+			expect(out).not.toContain("alert('xss')");
+			expect(out).not.toContain('<iframe');
+			expect(out).not.toContain('<style');
+			expect(out).not.toContain('.evil');
+			expect(out).toContain('Before');
+			expect(out).toContain('Middle');
+			expect(out).toContain('After');
 		});
 
-		it('should strip on* event handlers from attributes', function () {
+		it('should strip on* event handlers from attributes', () => {
 			const out = htmlToXhtmlBody(htmlWithEventHandlers);
-			expect(out).to.not.include('onclick');
-			expect(out).to.not.include('onmouseover');
-			expect(out).to.not.include('onload');
-			expect(out).to.not.include('alert(1)');
-			expect(out).to.not.include('stealCookies');
-			expect(out).to.include('Click');
+			expect(out).not.toContain('onclick');
+			expect(out).not.toContain('onmouseover');
+			expect(out).not.toContain('onload');
+			expect(out).not.toContain('alert(1)');
+			expect(out).not.toContain('stealCookies');
+			expect(out).toContain('Click');
 		});
 
-		it('should self-close every void element', function () {
+		it('should self-close every void element', () => {
 			const out = htmlToXhtmlBody(htmlWithVoidElements);
-			expect(out).to.match(/<br\s*\/>/);
-			expect(out).to.match(/<hr\s*\/>/);
-			expect(out).to.match(/<img[^>]*\/>/);
-			expect(out).to.match(/<meta[^>]*\/>/);
-			expect(out).to.match(/<input[^>]*\/>/);
-			expect(out).to.match(/<link[^>]*\/>/);
-			expect(out).to.not.match(/<br>/);
-			expect(out).to.not.match(/<hr>/);
+			expect(out).toMatch(/<br\s*\/>/);
+			expect(out).toMatch(/<hr\s*\/>/);
+			expect(out).toMatch(/<img[^>]*\/>/);
+			expect(out).toMatch(/<meta[^>]*\/>/);
+			expect(out).toMatch(/<input[^>]*\/>/);
+			expect(out).toMatch(/<link[^>]*\/>/);
+			expect(out).not.toMatch(/<br>/);
+			expect(out).not.toMatch(/<hr>/);
 		});
 
-		it('should not double-close already self-closed void elements', function () {
+		it('should not double-close already self-closed void elements', () => {
 			const out = htmlToXhtmlBody('<body><img src="x"/><br/></body>');
-			expect(out).to.not.include('//');
-			expect(out).to.match(/<img[^>]*\/>/);
+			expect(out).not.toContain('//');
+			expect(out).toMatch(/<img[^>]*\/>/);
 		});
 
-		it('should escape stray ampersands but leave existing entities alone', function () {
+		it('should escape stray ampersands but leave existing entities alone', () => {
 			const out = htmlToXhtmlBody(htmlWithAmpersands);
-			expect(out).to.include('salt &amp; vinegar');
-			expect(out).to.include('Fish &amp; chips');
-			expect(out).to.include('&#233;');
-			expect(out).to.include('&eacute;');
+			expect(out).toContain('salt &amp; vinegar');
+			expect(out).toContain('Fish &amp; chips');
+			expect(out).toContain('&#233;');
+			expect(out).toContain('&eacute;');
 		});
 
-		it('should remove HTML comments', function () {
+		it('should remove HTML comments', () => {
 			const out = htmlToXhtmlBody('<body><!-- hidden --><p>visible</p></body>');
-			expect(out).to.not.include('hidden');
-			expect(out).to.include('visible');
+			expect(out).not.toContain('hidden');
+			expect(out).toContain('visible');
 		});
 
-		it('should not throw on malformed HTML', function () {
-			expect(() => htmlToXhtmlBody(malformedHtml)).to.not.throw();
+		it('should not throw on malformed HTML', () => {
+			expect(() => htmlToXhtmlBody(malformedHtml)).not.toThrow();
 		});
 
-		it('should trim whitespace from the output', function () {
+		it('should trim whitespace from the output', () => {
 			const out = htmlToXhtmlBody('<body>   <p>x</p>\n\n   </body>');
-			expect(out.startsWith('<p>')).to.equal(true);
-			expect(out.endsWith('</p>')).to.equal(true);
+			expect(out.startsWith('<p>')).toBe(true);
+			expect(out.endsWith('</p>')).toBe(true);
 		});
 	});
 
-	describe('buildEpub()', function () {
+	describe('buildEpub()', () => {
 		function extractFile(bytes: Uint8Array, name: string): string | null {
-			// Locate a STORE'd file by the name and return its utf-8 decoded payload.
 			const nameBytes = new TextEncoder().encode(name);
 			const SIG = [0x50, 0x4b, 0x03, 0x04];
 			for (let i = 0; i < bytes.length - 30; i++) {
@@ -143,12 +141,10 @@ describe('nodes/HtmlToEpub/epub.ts', function () {
 						const dataStart = i + 30 + nameLen + extraLen;
 						return decoder.decode(bytes.subarray(dataStart, dataStart + compSize));
 					}
-					// Skip ahead past this entry to avoid matching signatures inside payload.
 					i = i + 30 + nameLen + extraLen + compSize - 1;
 				}
 			}
 			if (name === 'mimetype') {
-				// mimetype is the first entry — its exact bytes match.
 				for (let i = 0; i < bytes.length - nameBytes.length; i++) {
 					let ok = true;
 					for (let j = 0; j < nameBytes.length; j++) {
@@ -168,40 +164,40 @@ describe('nodes/HtmlToEpub/epub.ts', function () {
 			html: '<body><p>chapter body</p></body>',
 		};
 
-		it('should return a Uint8Array', function () {
+		it('should return a Uint8Array', () => {
 			const out = buildEpub(baseInput);
-			expect(out).to.be.instanceOf(Uint8Array);
-			expect(out.byteLength).to.be.greaterThan(0);
+			expect(out).toBeInstanceOf(Uint8Array);
+			expect(out.byteLength).toBeGreaterThan(0);
 		});
 
-		it('should start with a local file header signature', function () {
+		it('should start with a local file header signature', () => {
 			const out = buildEpub(baseInput);
-			expect(out[0]).to.equal(0x50);
-			expect(out[1]).to.equal(0x4b);
-			expect(out[2]).to.equal(0x03);
-			expect(out[3]).to.equal(0x04);
+			expect(out[0]).toBe(0x50);
+			expect(out[1]).toBe(0x4b);
+			expect(out[2]).toBe(0x03);
+			expect(out[3]).toBe(0x04);
 		});
 
-		it('should end with the end-of-central-directory signature', function () {
+		it('should end with the end-of-central-directory signature', () => {
 			const out = buildEpub(baseInput);
 			const eocd = out.subarray(out.length - 22, out.length - 18);
-			expect([...eocd]).to.deep.equal([0x50, 0x4b, 0x05, 0x06]);
+			expect([...eocd]).toEqual([0x50, 0x4b, 0x05, 0x06]);
 		});
 
-		it('should include a mimetype entry with the correct payload', function () {
+		it('should include a mimetype entry with the correct payload', () => {
 			const out = buildEpub(baseInput);
 			const mimetype = extractFile(out, 'mimetype');
-			expect(mimetype).to.equal('application/epub+zip');
+			expect(mimetype).toBe('application/epub+zip');
 		});
 
-		it('should include the META-INF/container.xml pointing at content.opf', function () {
+		it('should include the META-INF/container.xml pointing at content.opf', () => {
 			const out = buildEpub(baseInput);
 			const container = extractFile(out, 'META-INF/container.xml');
-			expect(container).to.not.be.null;
-			expect(container!).to.include('full-path="OEBPS/content.opf"');
+			expect(container).not.toBeNull();
+			expect(container!).toContain('full-path="OEBPS/content.opf"');
 		});
 
-		it('should include all metadata in the OPF when supplied', function () {
+		it('should include all metadata in the OPF when supplied', () => {
 			const out = buildEpub({
 				...baseInput,
 				author: 'Jane Doe',
@@ -211,53 +207,53 @@ describe('nodes/HtmlToEpub/epub.ts', function () {
 				language: 'de',
 			});
 			const opf = extractFile(out, 'OEBPS/content.opf');
-			expect(opf).to.not.be.null;
-			expect(opf!).to.include('<dc:creator id="creator">Jane Doe</dc:creator>');
-			expect(opf!).to.include('<dc:publisher>ACME</dc:publisher>');
-			expect(opf!).to.include('<dc:description>A short book</dc:description>');
-			expect(opf!).to.include('<dc:identifier id="BookId">urn:uuid:abc-123</dc:identifier>');
-			expect(opf!).to.include('<dc:language>de</dc:language>');
-			expect(opf!).to.include('xml:lang="de"');
+			expect(opf).not.toBeNull();
+			expect(opf!).toContain('<dc:creator id="creator">Jane Doe</dc:creator>');
+			expect(opf!).toContain('<dc:publisher>ACME</dc:publisher>');
+			expect(opf!).toContain('<dc:description>A short book</dc:description>');
+			expect(opf!).toContain('<dc:identifier id="BookId">urn:uuid:abc-123</dc:identifier>');
+			expect(opf!).toContain('<dc:language>de</dc:language>');
+			expect(opf!).toContain('xml:lang="de"');
 		});
 
-		it('should default to language "en" and a random UUID identifier when omitted', function () {
+		it('should default to language "en" and a random UUID identifier when omitted', () => {
 			const out = buildEpub(baseInput);
 			const opf = extractFile(out, 'OEBPS/content.opf');
-			expect(opf!).to.include('<dc:language>en</dc:language>');
-			expect(opf!).to.match(/urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+			expect(opf!).toContain('<dc:language>en</dc:language>');
+			expect(opf!).toMatch(/urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
 		});
 
-		it('should XML-escape the title in every place it appears', function () {
+		it('should XML-escape the title in every place it appears', () => {
 			const out = buildEpub({ ...baseInput, title: 'A & B <c>' });
 			const opf = extractFile(out, 'OEBPS/content.opf');
 			const ncx = extractFile(out, 'OEBPS/toc.ncx');
 			const toc = extractFile(out, 'OEBPS/toc.xhtml');
 			const chapter = extractFile(out, 'OEBPS/article_content.xhtml');
 			for (const doc of [opf, ncx, toc, chapter]) {
-				expect(doc).to.not.be.null;
-				expect(doc!).to.include('A &amp; B &lt;c&gt;');
-				expect(doc!).to.not.include('<c>');
+				expect(doc).not.toBeNull();
+				expect(doc!).toContain('A &amp; B &lt;c&gt;');
+				expect(doc!).not.toContain('<c>');
 			}
 		});
 
-		it('should embed the chapter HTML body in article_content.xhtml', function () {
+		it('should embed the chapter HTML body in article_content.xhtml', () => {
 			const out = buildEpub({ ...baseInput, html: '<body><p>chapter body</p></body>' });
 			const chapter = extractFile(out, 'OEBPS/article_content.xhtml');
-			expect(chapter).to.not.be.null;
-			expect(chapter!).to.include('<p>chapter body</p>');
-			expect(chapter!).to.include('<section epub:type="chapter">');
+			expect(chapter).not.toBeNull();
+			expect(chapter!).toContain('<p>chapter body</p>');
+			expect(chapter!).toContain('<section epub:type="chapter">');
 		});
 
-		it('should include a byline only when an author is provided', function () {
+		it('should include a byline only when an author is provided', () => {
 			const withoutAuthor = buildEpub(baseInput);
 			const withAuthor = buildEpub({ ...baseInput, author: 'Jane Doe' });
-			expect(extractFile(withoutAuthor, 'OEBPS/article_content.xhtml')!).to.not.include('class="byline"');
-			expect(extractFile(withAuthor, 'OEBPS/article_content.xhtml')!).to.include(
+			expect(extractFile(withoutAuthor, 'OEBPS/article_content.xhtml')!).not.toContain('class="byline"');
+			expect(extractFile(withAuthor, 'OEBPS/article_content.xhtml')!).toContain(
 				'<p class="byline">By Jane Doe</p>',
 			);
 		});
 
-		it('should include image manifest entries and image data when images are supplied', function () {
+		it('should include image manifest entries and image data when images are supplied', () => {
 			const img: FetchedImage = {
 				id: 'imgabc',
 				localPath: 'images/imgabc.png',
@@ -266,27 +262,26 @@ describe('nodes/HtmlToEpub/epub.ts', function () {
 			};
 			const out = buildEpub({ ...baseInput, images: [img] });
 			const opf = extractFile(out, 'OEBPS/content.opf');
-			expect(opf!).to.include(
+			expect(opf!).toContain(
 				'<item id="imgabc" href="images/imgabc.png" media-type="image/png"/>',
 			);
-			// Image payload should appear as a ZIP entry too.
-			expect(extractFile(out, 'OEBPS/images/imgabc.png')).to.not.be.null;
+			expect(extractFile(out, 'OEBPS/images/imgabc.png')).not.toBeNull();
 		});
 
-		it('should include the stylesheet, toc, and ncx entries', function () {
+		it('should include the stylesheet, toc, and ncx entries', () => {
 			const out = buildEpub(baseInput);
-			expect(extractFile(out, 'OEBPS/style.css')).to.include('font-family');
+			expect(extractFile(out, 'OEBPS/style.css')).toContain('font-family');
 			const toc = extractFile(out, 'OEBPS/toc.xhtml');
-			expect(toc!).to.include('Table of Contents');
+			expect(toc!).toContain('Table of Contents');
 			const ncx = extractFile(out, 'OEBPS/toc.ncx');
-			expect(ncx!).to.include('<docTitle><text>My Book</text></docTitle>');
-			expect(ncx!).to.include('<navPoint id="chapter-1" playOrder="1">');
+			expect(ncx!).toContain('<docTitle><text>My Book</text></docTitle>');
+			expect(ncx!).toContain('<navPoint id="chapter-1" playOrder="1">');
 		});
 
-		it('should treat a whitespace-only identifier as "no identifier"', function () {
+		it('should treat a whitespace-only identifier as "no identifier"', () => {
 			const out = buildEpub({ ...baseInput, identifier: '   ' });
 			const opf = extractFile(out, 'OEBPS/content.opf');
-			expect(opf!).to.match(/urn:uuid:[0-9a-f-]{36}/);
+			expect(opf!).toMatch(/urn:uuid:[0-9a-f-]{36}/);
 		});
 	});
 });

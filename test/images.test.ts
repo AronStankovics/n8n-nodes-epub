@@ -1,7 +1,5 @@
 /* eslint-disable */
-import { expect } from 'chai';
-import chaiAsPromised from 'chai-as-promised';
-import * as chai from 'chai';
+import { describe, expect, it } from 'vitest';
 
 import {
 	extractImageUrls,
@@ -16,54 +14,52 @@ import {
 	type HttpResponse,
 } from './test-data';
 
-chai.use(chaiAsPromised);
-
-describe('nodes/HtmlToEpub/images.ts', function () {
-	describe('extractImageUrls()', function () {
-		it('should extract double-quoted, single-quoted, and bare <img src> values', function () {
+describe('nodes/HtmlToEpub/images.ts', () => {
+	describe('extractImageUrls()', () => {
+		it('should extract double-quoted, single-quoted, and bare <img src> values', () => {
 			const urls = extractImageUrls(htmlWithImages);
-			expect(urls).to.include('https://example.com/a.jpg');
-			expect(urls).to.include('https://example.com/b.png');
-			expect(urls).to.include('https://example.com/c.gif');
+			expect(urls).toContain('https://example.com/a.jpg');
+			expect(urls).toContain('https://example.com/b.png');
+			expect(urls).toContain('https://example.com/c.gif');
 		});
 
-		it('should deduplicate repeated URLs', function () {
+		it('should deduplicate repeated URLs', () => {
 			const urls = extractImageUrls(htmlWithImages);
 			const occurrences = urls.filter((u) => u === 'https://example.com/a.jpg');
-			expect(occurrences).to.have.length(1);
+			expect(occurrences).toHaveLength(1);
 		});
 
-		it('should skip data: URIs', function () {
+		it('should skip data: URIs', () => {
 			const urls = extractImageUrls(htmlWithImages);
-			expect(urls.some((u) => u.startsWith('data:'))).to.equal(false);
+			expect(urls.some((u) => u.startsWith('data:'))).toBe(false);
 		});
 
-		it('should skip relative paths without an http(s) scheme', function () {
+		it('should skip relative paths without an http(s) scheme', () => {
 			const urls = extractImageUrls(htmlWithImages);
-			expect(urls).to.not.include('/local/d.png');
+			expect(urls).not.toContain('/local/d.png');
 		});
 
-		it('should return an empty array when there are no <img> tags', function () {
-			expect(extractImageUrls('<p>text only</p>')).to.deep.equal([]);
+		it('should return an empty array when there are no <img> tags', () => {
+			expect(extractImageUrls('<p>text only</p>')).toEqual([]);
 		});
 
-		it('should not crash on malformed <img> tags', function () {
-			expect(() => extractImageUrls('<img src=')).to.not.throw();
-			expect(() => extractImageUrls('<img>')).to.not.throw();
+		it('should not crash on malformed <img> tags', () => {
+			expect(() => extractImageUrls('<img src=')).not.toThrow();
+			expect(() => extractImageUrls('<img>')).not.toThrow();
 		});
 
-		it('should support https:// URLs', function () {
+		it('should support https:// URLs', () => {
 			const urls = extractImageUrls('<img src="https://cdn.example/foo.jpg">');
-			expect(urls).to.deep.equal(['https://cdn.example/foo.jpg']);
+			expect(urls).toEqual(['https://cdn.example/foo.jpg']);
 		});
 
-		it('should ignore ftp:// or other non-http schemes', function () {
+		it('should ignore ftp:// or other non-http schemes', () => {
 			const urls = extractImageUrls('<img src="ftp://example.com/x.png">');
-			expect(urls).to.deep.equal([]);
+			expect(urls).toEqual([]);
 		});
 	});
 
-	describe('fetchImages()', function () {
+	describe('fetchImages()', () => {
 		function stubResponse(
 			body: Buffer | Uint8Array,
 			contentType = 'image/png',
@@ -74,7 +70,7 @@ describe('nodes/HtmlToEpub/images.ts', function () {
 			};
 		}
 
-		it('should call helpers.httpRequest with url, arraybuffer encoding, timeout, and UA', async function () {
+		it('should call helpers.httpRequest with url, arraybuffer encoding, timeout, and UA', async () => {
 			const { mock, calls } = makeExecuteFunctionsMock({
 				httpRequest: async () => stubResponse(pngPixel),
 			});
@@ -83,17 +79,17 @@ describe('nodes/HtmlToEpub/images.ts', function () {
 				maxBytes: 10_000_000,
 				userAgent: 'test-agent/1.0',
 			});
-			expect(calls.httpRequest).to.have.length(1);
+			expect(calls.httpRequest).toHaveLength(1);
 			const opts = calls.httpRequest[0];
-			expect(opts.url).to.equal('https://example.com/a.png');
-			expect(opts.method).to.equal('GET');
-			expect(opts.encoding).to.equal('arraybuffer');
-			expect(opts.returnFullResponse).to.equal(true);
-			expect(opts.timeout).to.equal(5000);
-			expect(opts.headers).to.deep.equal({ 'User-Agent': 'test-agent/1.0' });
+			expect(opts.url).toBe('https://example.com/a.png');
+			expect(opts.method).toBe('GET');
+			expect(opts.encoding).toBe('arraybuffer');
+			expect(opts.returnFullResponse).toBe(true);
+			expect(opts.timeout).toBe(5000);
+			expect(opts.headers).toEqual({ 'User-Agent': 'test-agent/1.0' });
 		});
 
-		it('should return a Map keyed by URL with mime type inferred from content-type', async function () {
+		it('should return a Map keyed by URL with mime type inferred from content-type', async () => {
 			const { mock } = makeExecuteFunctionsMock({
 				httpRequest: async () => stubResponse(pngPixel, 'image/png'),
 			});
@@ -103,14 +99,14 @@ describe('nodes/HtmlToEpub/images.ts', function () {
 				userAgent: 'ua',
 			});
 			const entry = map.get('https://example.com/a.png');
-			expect(entry).to.exist;
-			expect(entry!.mimeType).to.equal('image/png');
-			expect(entry!.localPath).to.match(/^images\/img[0-9a-f]{32}\.png$/);
-			expect(entry!.id).to.match(/^img[0-9a-f]{32}$/);
-			expect(entry!.data.byteLength).to.equal(pngPixel.length);
+			expect(entry).toBeDefined();
+			expect(entry!.mimeType).toBe('image/png');
+			expect(entry!.localPath).toMatch(/^images\/img[0-9a-f]{32}\.png$/);
+			expect(entry!.id).toMatch(/^img[0-9a-f]{32}$/);
+			expect(entry!.data.byteLength).toBe(pngPixel.length);
 		});
 
-		it('should pick the extension from the URL when Content-Type is missing or generic', async function () {
+		it('should pick the extension from the URL when Content-Type is missing or generic', async () => {
 			const { mock } = makeExecuteFunctionsMock({
 				httpRequest: async () => stubResponse(pngPixel, 'application/octet-stream'),
 			});
@@ -120,12 +116,12 @@ describe('nodes/HtmlToEpub/images.ts', function () {
 				userAgent: 'ua',
 			});
 			const entry = map.get('https://example.com/foo.jpg');
-			expect(entry).to.exist;
-			expect(entry!.localPath).to.match(/\.jpeg$/);
-			expect(entry!.mimeType).to.equal('image/jpeg');
+			expect(entry).toBeDefined();
+			expect(entry!.localPath).toMatch(/\.jpeg$/);
+			expect(entry!.mimeType).toBe('image/jpeg');
 		});
 
-		it('should default to jpeg when neither header nor URL give a hint', async function () {
+		it('should default to jpeg when neither header nor URL give a hint', async () => {
 			const { mock } = makeExecuteFunctionsMock({
 				httpRequest: async () => stubResponse(pngPixel, ''),
 			});
@@ -135,10 +131,10 @@ describe('nodes/HtmlToEpub/images.ts', function () {
 				userAgent: 'ua',
 			});
 			const entry = map.get('https://example.com/noext');
-			expect(entry!.localPath).to.match(/\.jpeg$/);
+			expect(entry!.localPath).toMatch(/\.jpeg$/);
 		});
 
-		it('should silently drop URLs whose request rejects', async function () {
+		it('should silently drop URLs whose request rejects', async () => {
 			const { mock } = makeExecuteFunctionsMock({
 				httpRequest: async (options) => {
 					if (options.url === 'https://example.com/bad') throw new Error('boom');
@@ -150,11 +146,11 @@ describe('nodes/HtmlToEpub/images.ts', function () {
 				['https://example.com/good', 'https://example.com/bad'],
 				{ timeoutMs: 1000, maxBytes: 1_000_000, userAgent: 'ua' },
 			);
-			expect(map.has('https://example.com/good')).to.equal(true);
-			expect(map.has('https://example.com/bad')).to.equal(false);
+			expect(map.has('https://example.com/good')).toBe(true);
+			expect(map.has('https://example.com/bad')).toBe(false);
 		});
 
-		it('should skip responses larger than maxBytes', async function () {
+		it('should skip responses larger than maxBytes', async () => {
 			const { mock } = makeExecuteFunctionsMock({
 				httpRequest: async () => stubResponse(Buffer.alloc(100), 'image/png'),
 			});
@@ -163,10 +159,10 @@ describe('nodes/HtmlToEpub/images.ts', function () {
 				maxBytes: 50,
 				userAgent: 'ua',
 			});
-			expect(map.size).to.equal(0);
+			expect(map.size).toBe(0);
 		});
 
-		it('should strip content-type parameters (e.g. "image/png; charset=utf-8")', async function () {
+		it('should strip content-type parameters (e.g. "image/png; charset=utf-8")', async () => {
 			const { mock } = makeExecuteFunctionsMock({
 				httpRequest: async () => stubResponse(pngPixel, 'image/png; charset=utf-8'),
 			});
@@ -175,10 +171,10 @@ describe('nodes/HtmlToEpub/images.ts', function () {
 				maxBytes: 1_000_000,
 				userAgent: 'ua',
 			});
-			expect(map.get('https://example.com/a.png')!.mimeType).to.equal('image/png');
+			expect(map.get('https://example.com/a.png')!.mimeType).toBe('image/png');
 		});
 
-		it('should accept body returned as an ArrayBuffer', async function () {
+		it('should accept body returned as an ArrayBuffer', async () => {
 			const ab = new ArrayBuffer(pngPixel.length);
 			new Uint8Array(ab).set(pngPixel);
 			const { mock } = makeExecuteFunctionsMock({
@@ -192,10 +188,10 @@ describe('nodes/HtmlToEpub/images.ts', function () {
 				maxBytes: 1_000_000,
 				userAgent: 'ua',
 			});
-			expect(map.get('https://example.com/a.png')!.data.byteLength).to.equal(pngPixel.length);
+			expect(map.get('https://example.com/a.png')!.data.byteLength).toBe(pngPixel.length);
 		});
 
-		it('should be stable: the same URL always hashes to the same local path', async function () {
+		it('should be stable: the same URL always hashes to the same local path', async () => {
 			const { mock: a } = makeExecuteFunctionsMock({
 				httpRequest: async () => stubResponse(pngPixel),
 			});
@@ -212,24 +208,24 @@ describe('nodes/HtmlToEpub/images.ts', function () {
 				maxBytes: 1_000_000,
 				userAgent: 'ua',
 			});
-			expect(mapA.get('https://example.com/a.png')!.localPath).to.equal(
+			expect(mapA.get('https://example.com/a.png')!.localPath).toBe(
 				mapB.get('https://example.com/a.png')!.localPath,
 			);
 		});
 
-		it('should return an empty map for an empty url list', async function () {
+		it('should return an empty map for an empty url list', async () => {
 			const { mock, calls } = makeExecuteFunctionsMock();
 			const map = await fetchImages(mock, [], {
 				timeoutMs: 1000,
 				maxBytes: 1_000_000,
 				userAgent: 'ua',
 			});
-			expect(map.size).to.equal(0);
-			expect(calls.httpRequest).to.have.length(0);
+			expect(map.size).toBe(0);
+			expect(calls.httpRequest).toHaveLength(0);
 		});
 	});
 
-	describe('rewriteImgSrc()', function () {
+	describe('rewriteImgSrc()', () => {
 		const remote = 'https://example.com/a.jpg';
 		function makeMap(src: string, localPath: string): Map<string, FetchedImage> {
 			const map = new Map<string, FetchedImage>();
@@ -242,31 +238,31 @@ describe('nodes/HtmlToEpub/images.ts', function () {
 			return map;
 		}
 
-		it('should replace matching URLs with their local path', function () {
+		it('should replace matching URLs with their local path', () => {
 			const map = makeMap(remote, 'images/imgabc.jpeg');
 			const out = rewriteImgSrc(`<p><img src="${remote}" alt="x"></p>`, map);
-			expect(out).to.include('images/imgabc.jpeg');
-			expect(out).to.not.include(remote);
+			expect(out).toContain('images/imgabc.jpeg');
+			expect(out).not.toContain(remote);
 		});
 
-		it('should preserve tags whose URL was not fetched', function () {
+		it('should preserve tags whose URL was not fetched', () => {
 			const map = makeMap(remote, 'images/imgabc.jpeg');
 			const other = 'https://example.com/other.png';
 			const out = rewriteImgSrc(`<img src="${other}">`, map);
-			expect(out).to.include(other);
+			expect(out).toContain(other);
 		});
 
-		it('should handle quoted and bare attributes uniformly', function () {
+		it('should handle quoted and bare attributes uniformly', () => {
 			const map = makeMap(remote, 'local/a.jpeg');
 			const html = `<img src="${remote}">|<img src='${remote}'>|<img src=${remote}>`;
 			const out = rewriteImgSrc(html, map);
 			const occurrences = out.split('local/a.jpeg').length - 1;
-			expect(occurrences).to.equal(3);
+			expect(occurrences).toBe(3);
 		});
 
-		it('should return the input unchanged when the map is empty', function () {
+		it('should return the input unchanged when the map is empty', () => {
 			const html = `<img src="${remote}">`;
-			expect(rewriteImgSrc(html, new Map())).to.equal(html);
+			expect(rewriteImgSrc(html, new Map())).toBe(html);
 		});
 	});
 });
