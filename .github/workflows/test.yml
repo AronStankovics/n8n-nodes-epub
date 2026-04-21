@@ -15,6 +15,10 @@ jobs:
         node_version: ['20', '22']
     name: Node ${{ matrix.node_version }} on ${{ matrix.os }}
 
+    permissions:
+      # Only needs to checkout code; Coveralls uploads via its own service token.
+      contents: read
+
     steps:
       - uses: actions/checkout@v4
 
@@ -50,6 +54,8 @@ jobs:
     needs: test
     if: always()
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Coveralls finished
         uses: coverallsapp/github-action@v2
