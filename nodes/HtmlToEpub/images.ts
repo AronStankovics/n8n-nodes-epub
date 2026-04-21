@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 
 import type { IExecuteFunctions } from 'n8n-workflow';
 
+import { redactUrl } from './url';
+
 export interface FetchedImage {
 	localPath: string; // e.g. "images/img2ebe3c1897c845cc35ffe8c61955be95.jpeg"
 	id: string; // manifest id, e.g. "img2ebe3c1897c845cc35ffe8c61955be95"
@@ -50,21 +52,6 @@ const IMG_SRC_RE = /<img\b[^>]*?\bsrc\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))/gi
 
 function hashUrl(url: string): string {
 	return createHash('md5').update(url).digest('hex');
-}
-
-// Strip query string and fragment (and any embedded credentials) so error
-// messages can't leak signed-URL tokens into logs/UI.
-export function redactUrl(url: string): string {
-	try {
-		const parsed = new URL(url);
-		parsed.search = '';
-		parsed.hash = '';
-		parsed.username = '';
-		parsed.password = '';
-		return parsed.toString();
-	} catch {
-		return '[redacted]';
-	}
 }
 
 function extForUrl(url: string): string | null {
