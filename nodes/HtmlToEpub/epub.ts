@@ -13,6 +13,8 @@ export interface EpubInput {
 	publisher?: string;
 	description?: string;
 	images?: FetchedImage[];
+	customCss?: string;
+	cssMode?: 'append' | 'replace';
 	cover?: FetchedImage;
 }
 
@@ -225,10 +227,54 @@ const CONTAINER_XML = `<?xml version="1.0" encoding="UTF-8"?>
 </container>
 `;
 
+function splitLeadingCssAtRules(css: string): { leading: string[]; rest: string } {
+	let charset: string | null = null;
+	const imports: string[] = [];
+	let rest = css;
+
+	while (true) {
+		rest = rest.replace(/^\s+/, '');
+
+		const charsetMatch = rest.match(/^@charset\s+(?:"[^"\r\n]*"|'[^'\r\n]*')\s*;/i);
+		if (charsetMatch) {
+			// CSS spec: only the first @charset is honored. Later ones are dropped.
+			if (charset === null) charset = charsetMatch[0];
+			rest = rest.slice(charsetMatch[0].length);
+			continue;
+		}
+
+		const importMatch = rest.match(
+			/^@import\s+(?:url\((?:[^()\\]|\\.)*\)|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^;"'\r\n()]*)[^;]*;/i,
+		);
+		if (importMatch) {
+			imports.push(importMatch[0]);
+			rest = rest.slice(importMatch[0].length);
+			continue;
+		}
+
+		break;
+	}
+
+	// @charset must precede @import regardless of the order the user wrote them in.
+	const leading = charset ? [charset, ...imports] : imports;
+	return { leading, rest: rest.trim() };
+}
+
+function resolveStyleSheet(customCss: string | undefined, mode: 'append' | 'replace' | undefined): string {
+	const trimmed = customCss?.trim();
+	if (!trimmed) return DEFAULT_STYLE;
+	if (mode === 'replace') return `${trimmed}\n`;
+
+	const { leading, rest } = splitLeadingCssAtRules(trimmed);
+	const parts = [...leading, DEFAULT_STYLE, rest].filter((part) => part);
+	return `${parts.join('\n')}\n`;
+}
+
 export function buildEpub(input: EpubInput): Uint8Array {
 	const uid = (input.identifier && input.identifier.trim()) || randomUUID();
 	const encoder = new TextEncoder();
 	const images = input.images || [];
+	const styleSheet = resolveStyleSheet(input.customCss, input.cssMode);
 	const cover = input.cover;
 
 	const entries: ZipEntry[] = [
@@ -238,7 +284,7 @@ export function buildEpub(input: EpubInput): Uint8Array {
 		{ path: 'OEBPS/toc.xhtml', data: encoder.encode(renderToc(input)) },
 		{ path: 'OEBPS/toc.ncx', data: encoder.encode(renderNcx(input, uid)) },
 		{ path: 'OEBPS/article_content.xhtml', data: encoder.encode(renderChapter(input)) },
-		{ path: 'OEBPS/style.css', data: encoder.encode(DEFAULT_STYLE) },
+		{ path: 'OEBPS/style.css', data: encoder.encode(styleSheet) },
 	];
 
 	if (cover) {

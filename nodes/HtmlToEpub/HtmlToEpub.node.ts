@@ -52,6 +52,8 @@ export class HtmlToEpub implements INodeType {
 				) as string;
 				const additionalFields = this.getNodeParameter('additionalFields', itemIndex, {}) as {
 					author?: string;
+					cssMode?: 'append' | 'replace';
+					customCss?: string;
 					coverBinaryProperty?: string;
 					coverUrl?: string;
 					description?: string;
@@ -145,6 +147,8 @@ export class HtmlToEpub implements INodeType {
 					language: additionalFields.language?.trim() || undefined,
 					publisher: additionalFields.publisher?.trim() || undefined,
 					images: fetchedImages,
+					customCss: additionalFields.customCss,
+					cssMode: additionalFields.cssMode,
 					cover,
 				};
 

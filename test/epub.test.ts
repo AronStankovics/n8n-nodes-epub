@@ -3,48 +3,20 @@ import { describe, expect, it } from 'vitest';
 
 import { buildEpub } from '../nodes/HtmlToEpub/epub';
 import type { FetchedImage } from '../nodes/HtmlToEpub/images';
-import { pngPixel } from './test-data';
-
-const decoder = new TextDecoder('utf-8');
+import {
+	extractZipEntry,
+	htmlWithEventHandlers,
+	htmlWithScripts,
+	htmlWithVoidElements,
+	htmlWithAmpersands,
+	malformedHtml,
+	pngPixel,
+	simpleHtml,
+} from './test-data';
 
 describe('nodes/HtmlToEpub/epub.ts', () => {
 	describe('buildEpub()', () => {
-		function extractFile(bytes: Uint8Array, name: string): string | null {
-			const nameBytes = new TextEncoder().encode(name);
-			const SIG = [0x50, 0x4b, 0x03, 0x04];
-			for (let i = 0; i < bytes.length - 30; i++) {
-				if (
-					bytes[i] === SIG[0] &&
-					bytes[i + 1] === SIG[1] &&
-					bytes[i + 2] === SIG[2] &&
-					bytes[i + 3] === SIG[3]
-				) {
-					const dv = new DataView(bytes.buffer, bytes.byteOffset + i);
-					const compSize = dv.getUint32(18, true);
-					const nameLen = dv.getUint16(26, true);
-					const extraLen = dv.getUint16(28, true);
-					const entryName = decoder.decode(bytes.subarray(i + 30, i + 30 + nameLen));
-					if (entryName === name) {
-						const dataStart = i + 30 + nameLen + extraLen;
-						return decoder.decode(bytes.subarray(dataStart, dataStart + compSize));
-					}
-					i = i + 30 + nameLen + extraLen + compSize - 1;
-				}
-			}
-			if (name === 'mimetype') {
-				for (let i = 0; i < bytes.length - nameBytes.length; i++) {
-					let ok = true;
-					for (let j = 0; j < nameBytes.length; j++) {
-						if (bytes[i + j] !== nameBytes[j]) {
-							ok = false;
-							break;
-						}
-					}
-					if (ok) return decoder.decode(bytes.subarray(i, i + nameBytes.length));
-				}
-			}
-			return null;
-		}
+		const extractFile = extractZipEntry;
 
 		const baseInput = {
 			title: 'My Book',
@@ -169,6 +141,192 @@ describe('nodes/HtmlToEpub/epub.ts', () => {
 			const out = buildEpub({ ...baseInput, identifier: '   ' });
 			const opf = extractFile(out, 'OEBPS/content.opf');
 			expect(opf!).toMatch(/urn:uuid:[0-9a-f-]{36}/);
+		});
+
+		describe('custom CSS', () => {
+			const customCss = 'body { font-family: Georgia, serif; } p { color: tomato; }';
+
+			it('should emit only the default stylesheet when customCss is not supplied', () => {
+				const out = buildEpub(baseInput);
+				const css = extractFile(out, 'OEBPS/style.css');
+				expect(css).not.toBeNull();
+				expect(css!).toContain('font-family');
+				expect(css!).toContain('.toc-list');
+				expect(css!).not.toContain('tomato');
+			});
+
+			it('should append customCss after the default stylesheet by default', () => {
+				const out = buildEpub({ ...baseInput, customCss });
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				expect(css).toContain('.toc-list');
+				expect(css).toContain('tomato');
+				expect(css.indexOf('.toc-list')).toBeLessThan(css.indexOf('tomato'));
+			});
+
+			it('should append customCss after the default when cssMode=append', () => {
+				const out = buildEpub({ ...baseInput, customCss, cssMode: 'append' });
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				expect(css).toContain('.toc-list');
+				expect(css).toContain('Georgia, serif');
+				expect(css.indexOf('.toc-list')).toBeLessThan(css.indexOf('Georgia, serif'));
+			});
+
+			it('should drop the default stylesheet when cssMode=replace', () => {
+				const out = buildEpub({ ...baseInput, customCss, cssMode: 'replace' });
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				expect(css).toContain('tomato');
+				expect(css).not.toContain('.toc-list');
+				expect(css).not.toContain('BlinkMacSystemFont');
+			});
+
+			it('should ignore empty customCss and emit the default stylesheet', () => {
+				const out = buildEpub({ ...baseInput, customCss: '', cssMode: 'replace' });
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				expect(css).toContain('.toc-list');
+				expect(css).toContain('BlinkMacSystemFont');
+			});
+
+			it('should treat whitespace-only customCss as unset even in replace mode', () => {
+				const out = buildEpub({ ...baseInput, customCss: '   \n\t  ', cssMode: 'replace' });
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				expect(css).toContain('.toc-list');
+				expect(css).toContain('BlinkMacSystemFont');
+			});
+
+			it('should trim surrounding whitespace on customCss before bundling', () => {
+				const out = buildEpub({
+					...baseInput,
+					customCss: '\n\n  p { color: red; }  \n\n',
+					cssMode: 'replace',
+				});
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				expect(css.startsWith('p { color: red; }')).toBe(true);
+				expect(css.endsWith('\n')).toBe(true);
+			});
+
+			it('should keep the stylesheet manifest entry regardless of CSS mode', () => {
+				for (const mode of ['append', 'replace'] as const) {
+					const out = buildEpub({ ...baseInput, customCss, cssMode: mode });
+					const opf = extractFile(out, 'OEBPS/content.opf')!;
+					expect(opf).toContain('<item id="css" href="style.css" media-type="text/css"/>');
+				}
+			});
+
+			it('should not double-escape CSS content (style.css is not XML-escaped)', () => {
+				const out = buildEpub({
+					...baseInput,
+					customCss: 'a[href^="https://"] { color: green; }',
+					cssMode: 'replace',
+				});
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				expect(css).toContain('a[href^="https://"]');
+				expect(css).not.toContain('&quot;');
+				expect(css).not.toContain('&amp;');
+			});
+
+			it('should hoist leading @charset above the default stylesheet in append mode', () => {
+				const out = buildEpub({
+					...baseInput,
+					customCss: '@charset "utf-8";\nbody { color: red; }',
+				});
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				expect(css.startsWith('@charset "utf-8";')).toBe(true);
+				const charsetIdx = css.indexOf('@charset');
+				const defaultIdx = css.indexOf('BlinkMacSystemFont');
+				const userIdx = css.indexOf('color: red');
+				expect(charsetIdx).toBeLessThan(defaultIdx);
+				expect(defaultIdx).toBeLessThan(userIdx);
+			});
+
+			it('should hoist leading @import rules above the default stylesheet in append mode', () => {
+				const out = buildEpub({
+					...baseInput,
+					customCss:
+						'@import url("https://fonts.example.com/font.css");\nbody { font-family: MyFont; }',
+				});
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				const importIdx = css.indexOf('@import');
+				const defaultIdx = css.indexOf('BlinkMacSystemFont');
+				const userIdx = css.indexOf('MyFont');
+				expect(importIdx).toBeGreaterThanOrEqual(0);
+				expect(importIdx).toBeLessThan(defaultIdx);
+				expect(defaultIdx).toBeLessThan(userIdx);
+			});
+
+			it('should hoist multiple @import rules preserving their order', () => {
+				const out = buildEpub({
+					...baseInput,
+					customCss:
+						"@import 'a.css';\n@import url(b.css);\nbody { color: red; }",
+				});
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				const aIdx = css.indexOf("@import 'a.css';");
+				const bIdx = css.indexOf('@import url(b.css);');
+				const defaultIdx = css.indexOf('BlinkMacSystemFont');
+				expect(aIdx).toBeGreaterThanOrEqual(0);
+				expect(bIdx).toBeGreaterThan(aIdx);
+				expect(bIdx).toBeLessThan(defaultIdx);
+			});
+
+			it('should hoist @charset before @import even when written in either order', () => {
+				const out = buildEpub({
+					...baseInput,
+					customCss: '@import "a.css";\n@charset "utf-8";\nbody { color: red; }',
+				});
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				const charsetIdx = css.indexOf('@charset "utf-8";');
+				const importIdx = css.indexOf('@import "a.css";');
+				const defaultIdx = css.indexOf('BlinkMacSystemFont');
+				expect(charsetIdx).toBeGreaterThanOrEqual(0);
+				expect(importIdx).toBeGreaterThanOrEqual(0);
+				expect(charsetIdx).toBeLessThan(importIdx);
+				expect(importIdx).toBeLessThan(defaultIdx);
+			});
+
+			it('should keep only the first @charset when multiple are supplied', () => {
+				const out = buildEpub({
+					...baseInput,
+					customCss:
+						'@charset "utf-8";\n@charset "iso-8859-1";\nbody { color: red; }',
+				});
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				expect(css).toContain('@charset "utf-8";');
+				expect(css).not.toContain('@charset "iso-8859-1";');
+			});
+
+			it('should not hoist @import that appears after other rules', () => {
+				const out = buildEpub({
+					...baseInput,
+					customCss: 'body { color: red; }\n@import url("late.css");',
+				});
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				const defaultIdx = css.indexOf('BlinkMacSystemFont');
+				const lateImport = css.indexOf('@import url("late.css")');
+				expect(lateImport).toBeGreaterThan(defaultIdx);
+			});
+
+			it('should leave user CSS untouched when it only contains @charset/@import rules', () => {
+				const out = buildEpub({
+					...baseInput,
+					customCss: '@charset "utf-8";\n@import url("only.css");',
+				});
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				expect(css.startsWith('@charset "utf-8";')).toBe(true);
+				expect(css).toContain('@import url("only.css");');
+				expect(css).toContain('BlinkMacSystemFont');
+				expect(css.indexOf('@import')).toBeLessThan(css.indexOf('BlinkMacSystemFont'));
+			});
+
+			it('should not hoist at-rules when cssMode=replace (user CSS is the whole sheet)', () => {
+				const out = buildEpub({
+					...baseInput,
+					customCss: '@import url("a.css");\nbody { color: red; }',
+					cssMode: 'replace',
+				});
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				expect(css.startsWith('@import url("a.css");')).toBe(true);
+				expect(css).not.toContain('BlinkMacSystemFont');
+			});
 		});
 
 		it('should embed the cover page, image, and OPF metadata when input.cover is set', () => {
