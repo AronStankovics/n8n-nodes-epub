@@ -54,7 +54,7 @@ function hashUrl(url: string): string {
 
 // Strip query string and fragment (and any embedded credentials) so error
 // messages can't leak signed-URL tokens into logs/UI.
-function redactUrl(url: string): string {
+export function redactUrl(url: string): string {
 	try {
 		const parsed = new URL(url);
 		parsed.search = '';
