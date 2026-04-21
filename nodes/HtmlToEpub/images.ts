@@ -23,6 +23,10 @@ const EXT_FOR_MIME: Record<string, string> = {
 	'image/webp': 'webp',
 	'image/svg+xml': 'svg',
 	'image/bmp': 'bmp',
+	'image/avif': 'avif',
+	'image/heic': 'heic',
+	'image/heif': 'heif',
+	'image/tiff': 'tiff',
 };
 
 const EXT_FROM_URL: Record<string, string> = {
@@ -33,6 +37,11 @@ const EXT_FROM_URL: Record<string, string> = {
 	webp: 'webp',
 	svg: 'svg',
 	bmp: 'bmp',
+	avif: 'avif',
+	heic: 'heic',
+	heif: 'heif',
+	tif: 'tiff',
+	tiff: 'tiff',
 };
 
 // Regex-based URL extraction (no DOM dependency).
@@ -63,6 +72,14 @@ function mimeForExt(ext: string): string {
 			return 'image/svg+xml';
 		case 'bmp':
 			return 'image/bmp';
+		case 'avif':
+			return 'image/avif';
+		case 'heic':
+			return 'image/heic';
+		case 'heif':
+			return 'image/heif';
+		case 'tiff':
+			return 'image/tiff';
 		default:
 			return 'application/octet-stream';
 	}

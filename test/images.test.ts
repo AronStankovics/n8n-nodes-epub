@@ -2,7 +2,9 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+	coverFromBinary,
 	extractImageUrls,
+	fetchCoverImage,
 	fetchImages,
 	rewriteImgSrc,
 	type FetchedImage,
@@ -222,6 +224,128 @@ describe('nodes/HtmlToEpub/images.ts', () => {
 			});
 			expect(map.size).toBe(0);
 			expect(calls.httpRequest).toHaveLength(0);
+		});
+	});
+
+	describe('fetchCoverImage()', () => {
+		function stubResponse(
+			body: Buffer | Uint8Array,
+			contentType = 'image/jpeg',
+		): HttpResponse {
+			return { body, headers: { 'content-type': contentType } };
+		}
+
+		it('should return a FetchedImage tagged as the cover', async () => {
+			const { mock } = makeExecuteFunctionsMock({
+				httpRequest: async () => stubResponse(pngPixel, 'image/png'),
+			});
+			const cover = await fetchCoverImage(mock, 'https://example.com/c.png', {
+				timeoutMs: 1000,
+				maxBytes: 1_000_000,
+				userAgent: 'ua',
+			});
+			expect(cover.id).toBe('cover-image');
+			expect(cover.mimeType).toBe('image/png');
+			expect(cover.localPath).toBe('images/cover.png');
+			expect(cover.data.byteLength).toBe(pngPixel.length);
+		});
+
+		it('should throw when the response exceeds maxBytes (unlike fetchImages which skips)', async () => {
+			const { mock } = makeExecuteFunctionsMock({
+				httpRequest: async () => stubResponse(Buffer.alloc(200), 'image/jpeg'),
+			});
+			await expect(
+				fetchCoverImage(mock, 'https://example.com/big.jpg', {
+					timeoutMs: 1000,
+					maxBytes: 100,
+					userAgent: 'ua',
+				}),
+			).rejects.toThrow(/larger than the configured maximum/);
+		});
+
+		it('should fall back to the URL extension when the Content-Type header is missing', async () => {
+			const { mock } = makeExecuteFunctionsMock({
+				httpRequest: async () => stubResponse(pngPixel, ''),
+			});
+			const cover = await fetchCoverImage(mock, 'https://example.com/x.png', {
+				timeoutMs: 1000,
+				maxBytes: 1_000_000,
+				userAgent: 'ua',
+			});
+			expect(cover.localPath).toBe('images/cover.png');
+			expect(cover.mimeType).toBe('image/png');
+		});
+
+		it('should default to jpeg when neither header nor URL give a hint', async () => {
+			const { mock } = makeExecuteFunctionsMock({
+				httpRequest: async () => stubResponse(pngPixel, 'application/octet-stream'),
+			});
+			const cover = await fetchCoverImage(mock, 'https://example.com/noext', {
+				timeoutMs: 1000,
+				maxBytes: 1_000_000,
+				userAgent: 'ua',
+			});
+			expect(cover.localPath).toBe('images/cover.jpeg');
+			expect(cover.mimeType).toBe('image/jpeg');
+		});
+
+		it('should map modern image MIMEs (AVIF/HEIC) when the header is recognised', async () => {
+			const { mock } = makeExecuteFunctionsMock({
+				httpRequest: async () => stubResponse(pngPixel, 'image/avif'),
+			});
+			const cover = await fetchCoverImage(mock, 'https://example.com/pic', {
+				timeoutMs: 1000,
+				maxBytes: 1_000_000,
+				userAgent: 'ua',
+			});
+			expect(cover.mimeType).toBe('image/avif');
+			expect(cover.localPath).toBe('images/cover.avif');
+		});
+
+		it('should reject an unrecognised MIME and fall back to the safe mapping instead of embedding it', async () => {
+			const { mock } = makeExecuteFunctionsMock({
+				httpRequest: async () => stubResponse(pngPixel, 'image/jpeg"><script>x'),
+			});
+			const cover = await fetchCoverImage(mock, 'https://example.com/x.png', {
+				timeoutMs: 1000,
+				maxBytes: 1_000_000,
+				userAgent: 'ua',
+			});
+			expect(cover.mimeType).toBe('image/png');
+			expect(cover.mimeType).not.toContain('<script');
+		});
+	});
+
+	describe('coverFromBinary()', () => {
+		it('should map a recognised image MIME to the right extension', () => {
+			const cover = coverFromBinary(new Uint8Array(pngPixel), 'image/png');
+			expect(cover.id).toBe('cover-image');
+			expect(cover.mimeType).toBe('image/png');
+			expect(cover.localPath).toBe('images/cover.png');
+		});
+
+		it('should support modern image MIMEs like image/avif', () => {
+			const cover = coverFromBinary(new Uint8Array(pngPixel), 'image/avif');
+			expect(cover.mimeType).toBe('image/avif');
+			expect(cover.localPath).toBe('images/cover.avif');
+		});
+
+		it('should strip parameters from the declared MIME (e.g. "image/png; name=foo")', () => {
+			const cover = coverFromBinary(new Uint8Array(pngPixel), 'image/png; name=foo');
+			expect(cover.mimeType).toBe('image/png');
+		});
+
+		it('should default to jpeg when the declared MIME is empty or unknown', () => {
+			expect(coverFromBinary(new Uint8Array(pngPixel), '').mimeType).toBe('image/jpeg');
+			expect(coverFromBinary(new Uint8Array(pngPixel), 'application/pdf').mimeType).toBe(
+				'image/jpeg',
+			);
+		});
+
+		it('should not echo an untrusted header value into mimeType', () => {
+			const cover = coverFromBinary(new Uint8Array(pngPixel), 'image/jpeg"><inject');
+			expect(cover.mimeType).toBe('image/jpeg');
+			expect(cover.mimeType).not.toContain('<inject');
 		});
 	});
 
