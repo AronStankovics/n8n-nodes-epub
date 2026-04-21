@@ -12,6 +12,8 @@ export interface EpubInput {
 	publisher?: string;
 	description?: string;
 	images?: FetchedImage[];
+	customCss?: string;
+	cssMode?: 'append' | 'replace';
 }
 
 const DEFAULT_STYLE = `body {
@@ -243,10 +245,18 @@ const CONTAINER_XML = `<?xml version="1.0" encoding="UTF-8"?>
 </container>
 `;
 
+function resolveStyleSheet(customCss: string | undefined, mode: 'append' | 'replace' | undefined): string {
+	const trimmed = customCss?.trim();
+	if (!trimmed) return DEFAULT_STYLE;
+	if (mode === 'replace') return `${trimmed}\n`;
+	return `${DEFAULT_STYLE}\n${trimmed}\n`;
+}
+
 export function buildEpub(input: EpubInput): Uint8Array {
 	const uid = (input.identifier && input.identifier.trim()) || randomUUID();
 	const encoder = new TextEncoder();
 	const images = input.images || [];
+	const styleSheet = resolveStyleSheet(input.customCss, input.cssMode);
 
 	const entries: ZipEntry[] = [
 		{ path: 'mimetype', data: encoder.encode('application/epub+zip') },
@@ -255,7 +265,7 @@ export function buildEpub(input: EpubInput): Uint8Array {
 		{ path: 'OEBPS/toc.xhtml', data: encoder.encode(renderToc(input)) },
 		{ path: 'OEBPS/toc.ncx', data: encoder.encode(renderNcx(input, uid)) },
 		{ path: 'OEBPS/article_content.xhtml', data: encoder.encode(renderChapter(input)) },
-		{ path: 'OEBPS/style.css', data: encoder.encode(DEFAULT_STYLE) },
+		{ path: 'OEBPS/style.css', data: encoder.encode(styleSheet) },
 	];
 
 	for (const img of images) {

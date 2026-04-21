@@ -96,6 +96,37 @@ export class HtmlToEpub implements INodeType {
 						description: 'Author of the article, stored as dc:creator',
 					},
 					{
+						displayName: 'CSS Mode',
+						name: 'cssMode',
+						type: 'options',
+						default: 'append',
+						options: [
+							{
+								name: 'Append to Default',
+								value: 'append',
+								description:
+									'Add Custom CSS after the built-in stylesheet so it can override individual rules',
+							},
+							{
+								name: 'Replace Default',
+								value: 'replace',
+								description:
+									'Use Custom CSS as the only stylesheet — the built-in styles are dropped',
+							},
+						],
+						description: 'How Custom CSS combines with the built-in stylesheet. Ignored when Custom CSS is empty.',
+					},
+					{
+						displayName: 'Custom CSS',
+						name: 'customCss',
+						type: 'string',
+						typeOptions: { rows: 6 },
+						default: '',
+						placeholder: 'body { font-family: Georgia, serif; }',
+						description:
+							'Extra CSS bundled into the EPUB as style.css. Combined with the built-in stylesheet according to CSS Mode.',
+					},
+					{
 						displayName: 'Description',
 						name: 'description',
 						type: 'string',
@@ -177,6 +208,8 @@ export class HtmlToEpub implements INodeType {
 				) as string;
 				const additionalFields = this.getNodeParameter('additionalFields', itemIndex, {}) as {
 					author?: string;
+					cssMode?: 'append' | 'replace';
+					customCss?: string;
 					description?: string;
 					fileName?: string;
 					identifier?: string;
@@ -240,6 +273,8 @@ export class HtmlToEpub implements INodeType {
 					language: additionalFields.language?.trim() || undefined,
 					publisher: additionalFields.publisher?.trim() || undefined,
 					images: fetchedImages,
+					customCss: additionalFields.customCss,
+					cssMode: additionalFields.cssMode,
 				};
 
 				const epubBytes = buildEpub(epubInput);
