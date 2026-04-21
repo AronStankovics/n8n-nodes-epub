@@ -124,7 +124,7 @@ export function htmlToXhtmlBody(html: string): string {
 	return body.trim();
 }
 
-const HEADING_RE = /<(h[1-3])\b([^>]*)>([\s\S]*?)<\/\1\s*>/gi;
+const HEADING_RE = /<(h[1-3])\b([^>]*)>([\s\S]*?)<\/h[1-3]\s*>/gi;
 const ID_ATTR_RE = /\bid\s*=\s*(?:"([^"]+)"|'([^']+)'|(\S+))/i;
 
 function decodeBasicEntities(s: string): string {
