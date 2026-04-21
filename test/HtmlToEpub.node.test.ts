@@ -409,6 +409,9 @@ describe('nodes/HtmlToEpub/HtmlToEpub.node.ts', () => {
 			const css = extractZipEntry(capture.get(), 'OEBPS/style.css')!;
 			expect(css).toContain('.toc-list');
 			expect(css).not.toContain('Georgia, serif');
+		});
+	});
+
 	describe('execute() — cover image', () => {
 		it('should set hasCover=true and fetch the URL when coverUrl is provided', async () => {
 			const bundle = makeExecuteFunctionsMock({

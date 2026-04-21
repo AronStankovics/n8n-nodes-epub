@@ -103,6 +103,24 @@ export class HtmlToEpub implements INodeType {
 						description: 'Author of the article, stored as dc:creator',
 					},
 					{
+						displayName: 'Cover Binary Property',
+						name: 'coverBinaryProperty',
+						type: 'string',
+						default: '',
+						placeholder: 'cover',
+						description:
+							'Name of a binary property on the input item to use as the book cover. Takes precedence over Cover URL.',
+					},
+					{
+						displayName: 'Cover URL',
+						name: 'coverUrl',
+						type: 'string',
+						default: '',
+						placeholder: 'https://example.com/cover.jpg',
+						description:
+							'URL of an image to download and use as the book cover. Ignored when Cover Binary Property is set.',
+					},
+					{
 						displayName: 'CSS Mode',
 						name: 'cssMode',
 						type: 'options',
@@ -132,22 +150,6 @@ export class HtmlToEpub implements INodeType {
 						placeholder: 'body { font-family: Georgia, serif; }',
 						description:
 							'Extra CSS bundled into the EPUB as style.css. Combined with the built-in stylesheet according to CSS Mode.',
-						displayName: 'Cover Binary Property',
-						name: 'coverBinaryProperty',
-						type: 'string',
-						default: '',
-						placeholder: 'cover',
-						description:
-							'Name of a binary property on the input item to use as the book cover. Takes precedence over Cover URL.',
-					},
-					{
-						displayName: 'Cover URL',
-						name: 'coverUrl',
-						type: 'string',
-						default: '',
-						placeholder: 'https://example.com/cover.jpg',
-						description:
-							'URL of an image to download and use as the book cover. Ignored when Cover Binary Property is set.',
 					},
 					{
 						displayName: 'Description',

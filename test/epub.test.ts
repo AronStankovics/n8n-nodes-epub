@@ -417,6 +417,8 @@ describe('nodes/HtmlToEpub/epub.ts', () => {
 				expect(css.startsWith('@import url("a.css");')).toBe(true);
 				expect(css).not.toContain('BlinkMacSystemFont');
 			});
+		});
+
 		it('should embed the cover page, image, and OPF metadata when input.cover is set', () => {
 			const cover: FetchedImage = {
 				id: 'cover-image',
