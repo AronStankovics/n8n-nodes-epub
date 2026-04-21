@@ -114,7 +114,7 @@ export async function fetchImages(
 			const normalizedMime = headerContentType.split(';')[0].trim().toLowerCase();
 			const extFromHeader = EXT_FOR_MIME[normalizedMime];
 			const ext = extFromHeader || extForUrl(url) || 'jpeg';
-			const mimeType = normalizedMime.startsWith('image/') ? normalizedMime : mimeForExt(ext);
+			const mimeType = extFromHeader ? normalizedMime : mimeForExt(ext);
 
 			const hash = hashUrl(url);
 			const filename = `img${hash}.${ext}`;
@@ -163,7 +163,7 @@ export async function fetchCoverImage(
 	const normalizedMime = headerContentType.split(';')[0].trim().toLowerCase();
 	const extFromHeader = EXT_FOR_MIME[normalizedMime];
 	const ext = extFromHeader || extForUrl(url) || 'jpeg';
-	const mimeType = normalizedMime.startsWith('image/') ? normalizedMime : mimeForExt(ext);
+	const mimeType = extFromHeader ? normalizedMime : mimeForExt(ext);
 
 	return {
 		localPath: `images/cover.${ext}`,
@@ -179,7 +179,7 @@ export function coverFromBinary(buffer: Uint8Array, declaredMime: string): Fetch
 	const normalizedMime = (declaredMime || '').split(';')[0].trim().toLowerCase();
 	const extFromMime = EXT_FOR_MIME[normalizedMime];
 	const ext = extFromMime || 'jpeg';
-	const mimeType = normalizedMime.startsWith('image/') ? normalizedMime : mimeForExt(ext);
+	const mimeType = extFromMime ? normalizedMime : mimeForExt(ext);
 	return {
 		localPath: `images/cover.${ext}`,
 		id: 'cover-image',

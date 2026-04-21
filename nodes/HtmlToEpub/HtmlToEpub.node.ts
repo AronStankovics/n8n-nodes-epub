@@ -270,6 +270,13 @@ export class HtmlToEpub implements INodeType {
 						itemIndex,
 						coverBinaryProperty,
 					);
+					if (buffer.length > imageMaxBytes) {
+						throw new NodeOperationError(
+							this.getNode(),
+							`Cover image exceeds the maximum allowed size of ${imageMaxBytes} bytes`,
+							{ itemIndex },
+						);
+					}
 					cover = coverFromBinary(new Uint8Array(buffer), binary.mimeType || '');
 				} else if (coverUrl) {
 					cover = await fetchCoverImage(this, coverUrl, {
