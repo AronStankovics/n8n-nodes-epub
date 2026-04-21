@@ -33,6 +33,9 @@
     "dev": "n8n-node dev",
     "lint": "n8n-node lint",
     "lint:fix": "n8n-node lint --fix",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage",
     "release": "n8n-node release",
     "prepublishOnly": "n8n-node prerelease"
   },
@@ -52,10 +55,12 @@
   },
   "devDependencies": {
     "@n8n/node-cli": "^0.23.1",
+    "@vitest/coverage-v8": "^2.1.5",
     "eslint": "9.39.4",
     "prettier": "3.8.1",
     "release-it": "19.2.4",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "vitest": "^2.1.5"
   },
   "peerDependencies": {
     "n8n-workflow": "*"
