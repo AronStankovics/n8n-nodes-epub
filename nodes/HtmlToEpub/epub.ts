@@ -245,11 +245,43 @@ const CONTAINER_XML = `<?xml version="1.0" encoding="UTF-8"?>
 </container>
 `;
 
+function splitLeadingCssAtRules(css: string): { leading: string[]; rest: string } {
+	const leading: string[] = [];
+	let rest = css;
+
+	while (true) {
+		rest = rest.replace(/^\s+/, '');
+
+		const charsetMatch = rest.match(/^@charset\s+(?:"[^"\r\n]*"|'[^'\r\n]*')\s*;/i);
+		if (charsetMatch) {
+			leading.push(charsetMatch[0]);
+			rest = rest.slice(charsetMatch[0].length);
+			continue;
+		}
+
+		const importMatch = rest.match(
+			/^@import\s+(?:url\((?:[^()\\]|\\.)*\)|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^;"'\r\n()]*)[^;]*;/i,
+		);
+		if (importMatch) {
+			leading.push(importMatch[0]);
+			rest = rest.slice(importMatch[0].length);
+			continue;
+		}
+
+		break;
+	}
+
+	return { leading, rest: rest.trim() };
+}
+
 function resolveStyleSheet(customCss: string | undefined, mode: 'append' | 'replace' | undefined): string {
 	const trimmed = customCss?.trim();
 	if (!trimmed) return DEFAULT_STYLE;
 	if (mode === 'replace') return `${trimmed}\n`;
-	return `${DEFAULT_STYLE}\n${trimmed}\n`;
+
+	const { leading, rest } = splitLeadingCssAtRules(trimmed);
+	const parts = [...leading, DEFAULT_STYLE, rest].filter((part) => part);
+	return `${parts.join('\n')}\n`;
 }
 
 export function buildEpub(input: EpubInput): Uint8Array {

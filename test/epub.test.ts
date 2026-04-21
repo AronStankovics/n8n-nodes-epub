@@ -364,6 +364,95 @@ describe('nodes/HtmlToEpub/epub.ts', () => {
 				expect(css).not.toContain('&quot;');
 				expect(css).not.toContain('&amp;');
 			});
+
+			it('should hoist leading @charset above the default stylesheet in append mode', () => {
+				const out = buildEpub({
+					...baseInput,
+					customCss: '@charset "utf-8";\nbody { color: red; }',
+				});
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				expect(css.startsWith('@charset "utf-8";')).toBe(true);
+				const charsetIdx = css.indexOf('@charset');
+				const defaultIdx = css.indexOf('BlinkMacSystemFont');
+				const userIdx = css.indexOf('color: red');
+				expect(charsetIdx).toBeLessThan(defaultIdx);
+				expect(defaultIdx).toBeLessThan(userIdx);
+			});
+
+			it('should hoist leading @import rules above the default stylesheet in append mode', () => {
+				const out = buildEpub({
+					...baseInput,
+					customCss:
+						'@import url("https://fonts.example.com/font.css");\nbody { font-family: MyFont; }',
+				});
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				const importIdx = css.indexOf('@import');
+				const defaultIdx = css.indexOf('BlinkMacSystemFont');
+				const userIdx = css.indexOf('MyFont');
+				expect(importIdx).toBeGreaterThanOrEqual(0);
+				expect(importIdx).toBeLessThan(defaultIdx);
+				expect(defaultIdx).toBeLessThan(userIdx);
+			});
+
+			it('should hoist multiple @import rules preserving their order', () => {
+				const out = buildEpub({
+					...baseInput,
+					customCss:
+						"@import 'a.css';\n@import url(b.css);\nbody { color: red; }",
+				});
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				const aIdx = css.indexOf("@import 'a.css';");
+				const bIdx = css.indexOf('@import url(b.css);');
+				const defaultIdx = css.indexOf('BlinkMacSystemFont');
+				expect(aIdx).toBeGreaterThanOrEqual(0);
+				expect(bIdx).toBeGreaterThan(aIdx);
+				expect(bIdx).toBeLessThan(defaultIdx);
+			});
+
+			it('should hoist @charset before @import even when written in either order', () => {
+				const out = buildEpub({
+					...baseInput,
+					customCss: '@import "a.css";\n@charset "utf-8";\nbody { color: red; }',
+				});
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				const defaultIdx = css.indexOf('BlinkMacSystemFont');
+				expect(css.indexOf('@import "a.css";')).toBeLessThan(defaultIdx);
+				expect(css.indexOf('@charset "utf-8";')).toBeLessThan(defaultIdx);
+			});
+
+			it('should not hoist @import that appears after other rules', () => {
+				const out = buildEpub({
+					...baseInput,
+					customCss: 'body { color: red; }\n@import url("late.css");',
+				});
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				const defaultIdx = css.indexOf('BlinkMacSystemFont');
+				const lateImport = css.indexOf('@import url("late.css")');
+				expect(lateImport).toBeGreaterThan(defaultIdx);
+			});
+
+			it('should leave user CSS untouched when it only contains @charset/@import rules', () => {
+				const out = buildEpub({
+					...baseInput,
+					customCss: '@charset "utf-8";\n@import url("only.css");',
+				});
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				expect(css.startsWith('@charset "utf-8";')).toBe(true);
+				expect(css).toContain('@import url("only.css");');
+				expect(css).toContain('BlinkMacSystemFont');
+				expect(css.indexOf('@import')).toBeLessThan(css.indexOf('BlinkMacSystemFont'));
+			});
+
+			it('should not hoist at-rules when cssMode=replace (user CSS is the whole sheet)', () => {
+				const out = buildEpub({
+					...baseInput,
+					customCss: '@import url("a.css");\nbody { color: red; }',
+					cssMode: 'replace',
+				});
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				expect(css.startsWith('@import url("a.css");')).toBe(true);
+				expect(css).not.toContain('BlinkMacSystemFont');
+			});
 		});
 	});
 });
