@@ -1,8 +1,6 @@
 /* eslint-disable */
-import { expect } from 'chai';
-import chaiAsPromised from 'chai-as-promised';
-import * as chai from 'chai';
 import { NodeOperationError } from 'n8n-workflow';
+import { describe, expect, it } from 'vitest';
 
 import { HtmlToEpub } from '../nodes/HtmlToEpub/HtmlToEpub.node';
 import {
@@ -13,8 +11,6 @@ import {
 	type ExecuteMock,
 	type HttpResponse,
 } from './test-data';
-
-chai.use(chaiAsPromised);
 
 type Params = Record<string, unknown>;
 
@@ -41,92 +37,96 @@ async function runExecute(mockBundle: ExecuteMock) {
 	return node.execute.call(mockBundle.mock);
 }
 
-describe('nodes/HtmlToEpub/HtmlToEpub.node.ts', function () {
-	describe('description metadata', function () {
-		it('should define a valid node description', function () {
+describe('nodes/HtmlToEpub/HtmlToEpub.node.ts', () => {
+	describe('description metadata', () => {
+		it('should define a valid node description', () => {
 			const node = new HtmlToEpub();
-			expect(node.description.name).to.equal('htmlToEpub');
-			expect(node.description.displayName).to.equal('HTML to EPUB');
-			expect(node.description.usableAsTool).to.equal(true);
+			expect(node.description.name).toBe('htmlToEpub');
+			expect(node.description.displayName).toBe('HTML to EPUB');
+			expect(node.description.usableAsTool).toBe(true);
 			const propertyNames = node.description.properties.map((p) => p.name);
-			expect(propertyNames).to.include.members([
-				'inputSource',
-				'html',
-				'title',
-				'outputBinaryProperty',
-				'additionalFields',
-			]);
+			expect(propertyNames).toEqual(
+				expect.arrayContaining([
+					'inputSource',
+					'html',
+					'title',
+					'outputBinaryProperty',
+					'additionalFields',
+				]),
+			);
 		});
 	});
 
-	describe('execute() — happy path', function () {
-		it('should return a binary EPUB and correct JSON metadata', async function () {
+	describe('execute() — happy path', () => {
+		it('should return a binary EPUB and correct JSON metadata', async () => {
 			const bundle = makeExecuteFunctionsMock({ parameters: buildParams() });
 			const result = await runExecute(bundle);
-			expect(result).to.be.an('array').with.length(1);
+			expect(Array.isArray(result)).toBe(true);
+			expect(result).toHaveLength(1);
 			const output = result[0];
-			expect(output).to.have.length(1);
+			expect(output).toHaveLength(1);
 			const json = output[0].json as Record<string, unknown>;
-			expect(json.title).to.equal('My Article');
-			expect(json.fileName).to.equal('My Article.epub');
-			expect(json.imagesBundled).to.equal(0);
-			expect(json.size).to.be.a('number').and.greaterThan(0);
-			expect(output[0].binary).to.have.property('data');
-			expect(output[0].pairedItem).to.deep.equal({ item: 0 });
+			expect(json.title).toBe('My Article');
+			expect(json.fileName).toBe('My Article.epub');
+			expect(json.imagesBundled).toBe(0);
+			expect(typeof json.size).toBe('number');
+			expect(json.size as number).toBeGreaterThan(0);
+			expect(output[0].binary).toHaveProperty('data');
+			expect(output[0].pairedItem).toEqual({ item: 0 });
 		});
 
-		it('should call helpers.prepareBinaryData with the correct file name and mime type', async function () {
+		it('should call helpers.prepareBinaryData with the correct file name and mime type', async () => {
 			const bundle = makeExecuteFunctionsMock({ parameters: buildParams() });
 			await runExecute(bundle);
-			expect(bundle.calls.prepareBinaryData).to.have.length(1);
+			expect(bundle.calls.prepareBinaryData).toHaveLength(1);
 			const call = bundle.calls.prepareBinaryData[0];
-			expect(call.fileName).to.equal('My Article.epub');
-			expect(call.mimeType).to.equal('application/epub+zip');
-			expect(call.size).to.be.greaterThan(0);
+			expect(call.fileName).toBe('My Article.epub');
+			expect(call.mimeType).toBe('application/epub+zip');
+			expect(call.size).toBeGreaterThan(0);
 		});
 
-		it('should honor a custom output binary property name', async function () {
+		it('should honor a custom output binary property name', async () => {
 			const bundle = makeExecuteFunctionsMock({
 				parameters: buildParams({ outputBinaryProperty: 'myEpub' }),
 			});
 			const result = await runExecute(bundle);
-			expect(result[0][0].binary).to.have.property('myEpub');
-			expect(result[0][0].binary).to.not.have.property('data');
+			expect(result[0][0].binary).toHaveProperty('myEpub');
+			expect(result[0][0].binary).not.toHaveProperty('data');
 		});
 
-		it('should honor an explicit file name override', async function () {
+		it('should honor an explicit file name override', async () => {
 			const bundle = makeExecuteFunctionsMock({
 				parameters: buildParams({
 					additionalFields: { ...defaultAdditional, fileName: 'custom-name' },
 				}),
 			});
 			const result = await runExecute(bundle);
-			expect((result[0][0].json as Record<string, unknown>).fileName).to.equal('custom-name.epub');
+			expect((result[0][0].json as Record<string, unknown>).fileName).toBe('custom-name.epub');
 		});
 
-		it('should not add a second .epub suffix when override already has one', async function () {
+		it('should not add a second .epub suffix when override already has one', async () => {
 			const bundle = makeExecuteFunctionsMock({
 				parameters: buildParams({
 					additionalFields: { ...defaultAdditional, fileName: 'already.epub' },
 				}),
 			});
 			const result = await runExecute(bundle);
-			expect((result[0][0].json as Record<string, unknown>).fileName).to.equal('already.epub');
+			expect((result[0][0].json as Record<string, unknown>).fileName).toBe('already.epub');
 		});
 
-		it('should sanitise unsafe characters out of the default file name', async function () {
+		it('should sanitise unsafe characters out of the default file name', async () => {
 			const bundle = makeExecuteFunctionsMock({
 				parameters: buildParams({ title: 'My / Article: "Hello" | foo*?<>' }),
 			});
 			const result = await runExecute(bundle);
 			const fileName = (result[0][0].json as Record<string, unknown>).fileName as string;
-			expect(fileName).to.not.match(/[\\/:"*?<>|]/);
-			expect(fileName.endsWith('.epub')).to.equal(true);
+			expect(fileName).not.toMatch(/[\\/:"*?<>|]/);
+			expect(fileName.endsWith('.epub')).toBe(true);
 		});
 	});
 
-	describe('execute() — binary input source', function () {
-		it('should read HTML from a binary property when inputSource=binary', async function () {
+	describe('execute() — binary input source', () => {
+		it('should read HTML from a binary property when inputSource=binary', async () => {
 			const bundle = makeExecuteFunctionsMock({
 				parameters: buildParams({
 					inputSource: 'binary',
@@ -135,60 +135,60 @@ describe('nodes/HtmlToEpub/HtmlToEpub.node.ts', function () {
 				getBinaryDataBuffer: async () => Buffer.from(simpleHtml, 'utf-8'),
 			});
 			await runExecute(bundle);
-			expect(bundle.calls.getBinaryDataBuffer).to.have.length(1);
-			expect(bundle.calls.getBinaryDataBuffer[0]).to.deep.equal({
+			expect(bundle.calls.getBinaryDataBuffer).toHaveLength(1);
+			expect(bundle.calls.getBinaryDataBuffer[0]).toEqual({
 				itemIndex: 0,
 				property: 'html',
 			});
 		});
 
-		it('should error out when the binary property resolves to empty bytes', async function () {
+		it('should error out when the binary property resolves to empty bytes', async () => {
 			const bundle = makeExecuteFunctionsMock({
 				parameters: buildParams({ inputSource: 'binary' }),
 				getBinaryDataBuffer: async () => Buffer.from(''),
 			});
-			await expect(runExecute(bundle)).to.be.rejectedWith(NodeOperationError, /HTML input is empty/);
+			await expect(runExecute(bundle)).rejects.toBeInstanceOf(NodeOperationError);
+			await expect(runExecute(bundle)).rejects.toThrow(/HTML input is empty/);
 		});
 	});
 
-	describe('execute() — validation', function () {
-		it('should throw NodeOperationError when title is missing', async function () {
+	describe('execute() — validation', () => {
+		it('should throw NodeOperationError when title is missing', async () => {
 			const bundle = makeExecuteFunctionsMock({
 				parameters: buildParams({ title: '' }),
 			});
-			await expect(runExecute(bundle)).to.be.rejectedWith(NodeOperationError, /Title/);
+			await expect(runExecute(bundle)).rejects.toBeInstanceOf(NodeOperationError);
+			await expect(runExecute(bundle)).rejects.toThrow(/Title/);
 		});
 
-		it('should throw NodeOperationError when title is only whitespace', async function () {
+		it('should throw NodeOperationError when title is only whitespace', async () => {
 			const bundle = makeExecuteFunctionsMock({
 				parameters: buildParams({ title: '   \t  ' }),
 			});
-			await expect(runExecute(bundle)).to.be.rejectedWith(NodeOperationError, /Title/);
+			await expect(runExecute(bundle)).rejects.toBeInstanceOf(NodeOperationError);
+			await expect(runExecute(bundle)).rejects.toThrow(/Title/);
 		});
 
-		it('should throw NodeOperationError when HTML is blank', async function () {
+		it('should throw NodeOperationError when HTML is blank', async () => {
 			const bundle = makeExecuteFunctionsMock({
 				parameters: buildParams({ html: '   ' }),
 			});
-			await expect(runExecute(bundle)).to.be.rejectedWith(NodeOperationError, /HTML input is empty/);
+			await expect(runExecute(bundle)).rejects.toBeInstanceOf(NodeOperationError);
+			await expect(runExecute(bundle)).rejects.toThrow(/HTML input is empty/);
 		});
 
-		it('should include itemIndex on the thrown NodeOperationError', async function () {
+		it('should include itemIndex on the thrown NodeOperationError', async () => {
 			const bundle = makeExecuteFunctionsMock({
 				parameters: buildParams({ title: '' }),
 			});
-			try {
-				await runExecute(bundle);
-				expect.fail('expected NodeOperationError');
-			} catch (err) {
-				expect(err).to.be.instanceOf(NodeOperationError);
-				expect((err as { context?: { itemIndex?: number } }).context?.itemIndex).to.equal(0);
-			}
+			const err = await runExecute(bundle).catch((e) => e as unknown);
+			expect(err).toBeInstanceOf(NodeOperationError);
+			expect((err as { context?: { itemIndex?: number } }).context?.itemIndex).toBe(0);
 		});
 	});
 
-	describe('execute() — continueOnFail', function () {
-		it('should yield an error item and keep processing remaining items', async function () {
+	describe('execute() — continueOnFail', () => {
+		it('should yield an error item and keep processing remaining items', async () => {
 			const bundle = makeExecuteFunctionsMock({
 				continueOnFail: true,
 				inputData: [{ json: {} }, { json: {} }],
@@ -202,14 +202,14 @@ describe('nodes/HtmlToEpub/HtmlToEpub.node.ts', function () {
 				},
 			});
 			const result = await runExecute(bundle);
-			expect(result[0]).to.have.length(2);
-			expect((result[0][0].json as Record<string, unknown>).error).to.be.a('string');
-			expect((result[0][1].json as Record<string, unknown>).title).to.equal('Second');
+			expect(result[0]).toHaveLength(2);
+			expect(typeof (result[0][0].json as Record<string, unknown>).error).toBe('string');
+			expect((result[0][1].json as Record<string, unknown>).title).toBe('Second');
 		});
 	});
 
-	describe('execute() — image inlining', function () {
-		it('should call httpRequest once per unique remote image when inlineImages=true', async function () {
+	describe('execute() — image inlining', () => {
+		it('should call httpRequest once per unique remote image when inlineImages=true', async () => {
 			const response: HttpResponse = {
 				body: pngPixel,
 				headers: { 'content-type': 'image/png' },
@@ -222,13 +222,12 @@ describe('nodes/HtmlToEpub/HtmlToEpub.node.ts', function () {
 				httpRequest: async () => response,
 			});
 			const result = await runExecute(bundle);
-			// htmlWithImages has 3 unique remote URLs (a.jpg, b.png, c.gif)
-			expect(bundle.calls.httpRequest).to.have.length(3);
+			expect(bundle.calls.httpRequest).toHaveLength(3);
 			const imagesBundled = (result[0][0].json as Record<string, unknown>).imagesBundled;
-			expect(imagesBundled).to.equal(3);
+			expect(imagesBundled).toBe(3);
 		});
 
-		it('should skip image fetching when inlineImages=false', async function () {
+		it('should skip image fetching when inlineImages=false', async () => {
 			const bundle = makeExecuteFunctionsMock({
 				parameters: buildParams({
 					html: htmlWithImages,
@@ -236,10 +235,10 @@ describe('nodes/HtmlToEpub/HtmlToEpub.node.ts', function () {
 				}),
 			});
 			await runExecute(bundle);
-			expect(bundle.calls.httpRequest).to.have.length(0);
+			expect(bundle.calls.httpRequest).toHaveLength(0);
 		});
 
-		it('should still succeed when every image fetch fails', async function () {
+		it('should still succeed when every image fetch fails', async () => {
 			const bundle = makeExecuteFunctionsMock({
 				parameters: buildParams({
 					html: htmlWithImages,
@@ -250,11 +249,11 @@ describe('nodes/HtmlToEpub/HtmlToEpub.node.ts', function () {
 				},
 			});
 			const result = await runExecute(bundle);
-			expect((result[0][0].json as Record<string, unknown>).imagesBundled).to.equal(0);
-			expect((result[0][0].json as Record<string, unknown>).size).to.be.greaterThan(0);
+			expect((result[0][0].json as Record<string, unknown>).imagesBundled).toBe(0);
+			expect((result[0][0].json as Record<string, unknown>).size as number).toBeGreaterThan(0);
 		});
 
-		it('should forward custom timeoutMs and maxBytes to fetchImages', async function () {
+		it('should forward custom timeoutMs and maxBytes to fetchImages', async () => {
 			const bundle = makeExecuteFunctionsMock({
 				parameters: buildParams({
 					html: '<body><img src="https://example.com/a.png"></body>',
@@ -271,7 +270,7 @@ describe('nodes/HtmlToEpub/HtmlToEpub.node.ts', function () {
 				}),
 			});
 			await runExecute(bundle);
-			expect(bundle.calls.httpRequest[0].timeout).to.equal(1234);
+			expect(bundle.calls.httpRequest[0].timeout).toBe(1234);
 		});
 	});
 });
