@@ -158,7 +158,7 @@ function renderOpf(
 	// EPUB 2 fallback meta for readers that don't understand properties="cover-image".
 	const coverMeta = cover ? `<meta name="cover" content="cover-image"/>` : '';
 	const coverManifestItems = cover
-		? `<item id="cover-image" properties="cover-image" href="${cover.localPath}" media-type="${cover.mimeType}"/>\n<item id="cover-page" href="cover.xhtml" media-type="application/xhtml+xml"/>`
+		? `<item id="cover-image" properties="cover-image" href="${xmlEscape(cover.localPath)}" media-type="${xmlEscape(cover.mimeType)}"/>\n<item id="cover-page" href="cover.xhtml" media-type="application/xhtml+xml"/>`
 		: '';
 	const coverSpineItem = cover ? `<itemref idref="cover-page"/>` : '';
 	const coverGuideRef = cover
@@ -222,7 +222,7 @@ img { max-width: 100%; max-height: 100vh; }
 </head>
 <body epub:type="cover">
 <section>
-<img src="${cover.localPath}" alt="${escapedTitle}"/>
+<img src="${xmlEscape(cover.localPath)}" alt="${escapedTitle}"/>
 </section>
 </body>
 </html>

@@ -52,6 +52,21 @@ function hashUrl(url: string): string {
 	return createHash('md5').update(url).digest('hex');
 }
 
+// Strip query string and fragment (and any embedded credentials) so error
+// messages can't leak signed-URL tokens into logs/UI.
+function redactUrl(url: string): string {
+	try {
+		const parsed = new URL(url);
+		parsed.search = '';
+		parsed.hash = '';
+		parsed.username = '';
+		parsed.password = '';
+		return parsed.toString();
+	} catch {
+		return '[redacted]';
+	}
+}
+
 function extForUrl(url: string): string | null {
 	const m = url.match(/\.([a-z0-9]+)(?:\?|#|$)/i);
 	if (!m) return null;
@@ -172,7 +187,7 @@ export async function fetchCoverImage(
 
 	if (bodyBytes.byteLength > options.maxBytes) {
 		throw new Error(
-			`Cover image at ${url} is larger than the configured maximum (${options.maxBytes} bytes).`,
+			`Cover image at ${redactUrl(url)} is larger than the configured maximum (${options.maxBytes} bytes).`,
 		);
 	}
 

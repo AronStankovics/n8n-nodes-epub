@@ -316,5 +316,24 @@ describe('nodes/HtmlToEpub/epub.ts', () => {
 			expect(opf).not.toContain('cover-image');
 			expect(opf).not.toContain('cover.xhtml');
 		});
+
+		it('should XML-escape cover.localPath and cover.mimeType in OPF attributes and cover.xhtml', () => {
+			// A pathological cover that an external caller could theoretically construct.
+			// Current callers build safe values, but buildEpub/EpubInput are exported.
+			const cover: FetchedImage = {
+				id: 'cover-image',
+				localPath: `images/cover".jpg`,
+				mimeType: `image/jpeg" injected="x`,
+				data: new Uint8Array(pngPixel),
+			};
+			const out = buildEpub({ ...baseInput, cover });
+			const opf = extractFile(out, 'OEBPS/content.opf')!;
+			const coverXhtml = extractFile(out, 'OEBPS/cover.xhtml')!;
+			for (const doc of [opf, coverXhtml]) {
+				expect(doc).not.toContain('" injected="');
+				expect(doc).not.toContain(`cover".jpg`);
+			}
+			expect(opf).toContain('&quot;');
+		});
 	});
 });

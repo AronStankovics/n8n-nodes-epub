@@ -263,6 +263,25 @@ describe('nodes/HtmlToEpub/images.ts', () => {
 			).rejects.toThrow(/larger than the configured maximum/);
 		});
 
+		it('should redact query/fragment/credentials from the size-limit error URL', async () => {
+			const { mock } = makeExecuteFunctionsMock({
+				httpRequest: async () => stubResponse(Buffer.alloc(200), 'image/jpeg'),
+			});
+			const signedUrl =
+				'https://user:secret@example.com/cover.jpg?token=LEAKED_SECRET&sig=ALSO_LEAKED#frag';
+			const err = await fetchCoverImage(mock, signedUrl, {
+				timeoutMs: 1000,
+				maxBytes: 100,
+				userAgent: 'ua',
+			}).catch((e) => e as Error);
+			expect(err).toBeInstanceOf(Error);
+			expect(err.message).not.toContain('LEAKED_SECRET');
+			expect(err.message).not.toContain('ALSO_LEAKED');
+			expect(err.message).not.toContain('secret');
+			expect(err.message).not.toContain('#frag');
+			expect(err.message).toContain('example.com/cover.jpg');
+		});
+
 		it('should fall back to the URL extension when the Content-Type header is missing', async () => {
 			const { mock } = makeExecuteFunctionsMock({
 				httpRequest: async () => stubResponse(pngPixel, ''),
