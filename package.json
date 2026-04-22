@@ -48,12 +48,13 @@
   },
   "n8n": {
     "n8nNodesApiVersion": 1,
-    "strict": true,
+    "strict": false,
     "nodes": [
       "dist/nodes/HtmlToEpub/HtmlToEpub.node.js"
     ]
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@n8n/node-cli": "^0.23.1",
     "@vitest/coverage-v8": "^2.1.5",
     "eslint": "10.2.1",
