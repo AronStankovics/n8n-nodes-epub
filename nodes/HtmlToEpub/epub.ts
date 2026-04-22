@@ -148,12 +148,16 @@ function buildHeadingTree(headings: Heading[]): HeadingNode[] {
 	return roots;
 }
 
+function anchor(chapterHref: string, id: string): string {
+	return xmlEscape(`${chapterHref}#${id}`);
+}
+
 function renderTocNav(nodes: HeadingNode[], chapterHref: string): string {
 	if (nodes.length === 0) return '';
 	const items = nodes
 		.map((n) => {
 			const sub = n.children.length > 0 ? `\n${renderTocNav(n.children, chapterHref)}` : '';
-			return `<li><a href="${xmlEscape(`${chapterHref}#${n.id}`)}">${xmlEscape(n.text)}</a>${sub}</li>`;
+			return `<li><a href="${anchor(chapterHref, n.id)}">${xmlEscape(n.text)}</a>${sub}</li>`;
 		})
 		.join('\n');
 	return `<ol>\n${items}\n</ol>`;
@@ -174,7 +178,7 @@ function renderNcxNavPoints(
 					: '';
 			return `<navPoint id="nav-${playOrder}" playOrder="${playOrder}">
 <navLabel><text>${xmlEscape(node.text)}</text></navLabel>
-<content src="${xmlEscape(`${chapterHref}#${node.id}`)}"/>${children}
+<content src="${anchor(chapterHref, node.id)}"/>${children}
 </navPoint>`;
 		})
 		.join('\n');
