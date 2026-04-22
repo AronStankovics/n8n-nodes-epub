@@ -166,22 +166,25 @@ function renderTocNav(nodes: HeadingNode[], chapterHref: string): string {
 function renderNcxNavPoints(
 	nodes: HeadingNode[],
 	chapterHref: string,
-	counter: { n: number },
-): string {
-	return nodes
-		.map((node) => {
-			counter.n += 1;
-			const playOrder = counter.n;
-			const children =
-				node.children.length > 0
-					? `\n${renderNcxNavPoints(node.children, chapterHref, counter)}`
-					: '';
-			return `<navPoint id="nav-${playOrder}" playOrder="${playOrder}">
+	startOrder: number,
+): { xml: string; nextOrder: number } {
+	const parts: string[] = [];
+	let nextOrder = startOrder;
+	for (const node of nodes) {
+		nextOrder += 1;
+		const playOrder = nextOrder;
+		let childrenXml = '';
+		if (node.children.length > 0) {
+			const result = renderNcxNavPoints(node.children, chapterHref, nextOrder);
+			childrenXml = `\n${result.xml}`;
+			nextOrder = result.nextOrder;
+		}
+		parts.push(`<navPoint id="nav-${playOrder}" playOrder="${playOrder}">
 <navLabel><text>${xmlEscape(node.text)}</text></navLabel>
-<content src="${anchor(chapterHref, node.id)}"/>${children}
-</navPoint>`;
-		})
-		.join('\n');
+<content src="${anchor(chapterHref, node.id)}"/>${childrenXml}
+</navPoint>`);
+	}
+	return { xml: parts.join('\n'), nextOrder };
 }
 
 function treeDepth(nodes: HeadingNode[]): number {
@@ -339,9 +342,8 @@ function renderNcx(input: EpubInput, uid: string, headings: Heading[]): string {
 	const tree = buildHeadingTree(headings);
 	// Chapter is depth 1; each extra level of headings adds one to dtb:depth.
 	const depth = 1 + treeDepth(tree);
-	const counter = { n: 1 };
 	const nested =
-		tree.length > 0 ? `\n${renderNcxNavPoints(tree, 'article_content.xhtml', counter)}` : '';
+		tree.length > 0 ? `\n${renderNcxNavPoints(tree, 'article_content.xhtml', 1).xml}` : '';
 	return `<?xml version="1.0" encoding="UTF-8"?>
 <ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
 <head>
