@@ -97,10 +97,11 @@ function slugify(text: string): string {
 // flat ordered list of headings. The returned `annotatedHtml` is identical to
 // the input except for the injected `id` attributes, so the chapter XHTML and
 // the TOC point at matching anchors.
-function getUniqueHeadingId(base: string, used: Set<string>): string {
+function reserveUniqueId(base: string, used: Set<string>): string {
 	let candidate = base;
 	let n = 2;
 	while (used.has(candidate)) candidate = `${base}-${n++}`;
+	used.add(candidate);
 	return candidate;
 }
 
@@ -120,14 +121,13 @@ function extractHeadings(html: string): { annotatedHtml: string; headings: Headi
 		let id: string;
 		let newAttrs = attrs;
 		if (existingId) {
-			id = getUniqueHeadingId(existingId, used);
+			id = reserveUniqueId(existingId, used);
 			if (id !== existingId) newAttrs = attrs.replace(ID_ATTR_RE, `id="${id}"`);
 		} else {
 			const base = slugify(text) || `heading-${++fallback}`;
-			id = getUniqueHeadingId(base, used);
+			id = reserveUniqueId(base, used);
 			newAttrs = `${attrs} id="${id}"`;
 		}
-		used.add(id);
 		headings.push({ level, id, text });
 		return `<${tag}${newAttrs}>${inner}</${tag}>`;
 	});
