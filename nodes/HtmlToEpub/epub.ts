@@ -94,15 +94,20 @@ function slugify(text: string): string {
 }
 
 // Walk `<h1>`–`<h3>` tags, assign synthetic IDs where missing, and collect a
-// flat ordered list of headings. The returned `annotatedHtml` is identical to
-// the input except for the injected `id` attributes, so the chapter XHTML and
-// the TOC point at matching anchors.
+// flat ordered list of headings. Each heading's `id` attribute is re-emitted
+// through setIdAttr so the chapter XHTML is always well-formed and the TOC
+// points at matching anchors.
 function reserveUniqueId(base: string, used: Set<string>): string {
 	let candidate = base;
 	let n = 2;
 	while (used.has(candidate)) candidate = `${base}-${n++}`;
 	used.add(candidate);
 	return candidate;
+}
+
+function setIdAttr(attrs: string, id: string): string {
+	const replacement = `id="${xmlEscape(id)}"`;
+	return ID_ATTR_RE.test(attrs) ? attrs.replace(ID_ATTR_RE, replacement) : `${attrs} ${replacement}`;
 }
 
 function extractHeadings(html: string): { annotatedHtml: string; headings: Heading[] } {
@@ -117,19 +122,14 @@ function extractHeadings(html: string): { annotatedHtml: string; headings: Headi
 			.trim();
 
 		const idMatch = attrs.match(ID_ATTR_RE);
-		const existingId = idMatch ? idMatch[1] || idMatch[2] || idMatch[3] || '' : '';
-		let id: string;
-		let newAttrs = attrs;
-		if (existingId) {
-			id = reserveUniqueId(existingId, used);
-			if (id !== existingId) newAttrs = attrs.replace(ID_ATTR_RE, `id="${id}"`);
-		} else {
-			const base = slugify(text) || `heading-${++fallback}`;
-			id = reserveUniqueId(base, used);
-			newAttrs = `${attrs} id="${id}"`;
-		}
+		const rawExistingId = idMatch ? idMatch[1] || idMatch[2] || idMatch[3] || '' : '';
+		const existingId = rawExistingId ? decodeBasicEntities(rawExistingId) : '';
+
+		const base = existingId || slugify(text) || `heading-${++fallback}`;
+		const id = reserveUniqueId(base, used);
+
 		headings.push({ level, id, text });
-		return `<${tag}${newAttrs}>${inner}</${tag}>`;
+		return `<${tag}${setIdAttr(attrs, id)}>${inner}</${tag}>`;
 	});
 
 	return { annotatedHtml: annotated, headings };
