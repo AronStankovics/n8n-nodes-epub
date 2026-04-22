@@ -193,9 +193,9 @@ function treeDepth(nodes: HeadingNode[]): number {
 	return max;
 }
 
-function renderChapter(input: EpubInput, htmlOverride?: string): string {
+function renderChapter(input: EpubInput, chapterHtml: string): string {
 	const title = xmlEscape(input.title);
-	const bodyHtml = htmlToXhtmlBody(htmlOverride ?? input.html);
+	const bodyHtml = htmlToXhtmlBody(chapterHtml);
 	const byline = input.author
 		? `<p class="byline">By ${xmlEscape(input.author)}</p>\n<hr/>\n`
 		: '';
