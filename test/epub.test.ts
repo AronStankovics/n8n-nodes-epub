@@ -380,5 +380,197 @@ describe('nodes/HtmlToEpub/epub.ts', () => {
 			}
 			expect(opf).toContain('&quot;');
 		});
+
+		describe('TOC from headings', () => {
+			const nestedArticle = `<body>
+<h1>Part One</h1>
+<p>Intro.</p>
+<h2>Chapter 1</h2>
+<p>Text.</p>
+<h2>Chapter 2</h2>
+<p>Text.</p>
+<h1>Part Two</h1>
+<p>End.</p>
+</body>`;
+
+			it('should build a nested TOC tree from h1-h3 headings by default', () => {
+				const out = buildEpub({ title: 'Book', html: nestedArticle });
+				const toc = extractFile(out, 'OEBPS/toc.xhtml')!;
+
+				expect(toc).toContain('<a href="article_content.xhtml#part-one">Part One</a>');
+				expect(toc).toContain('<a href="article_content.xhtml#chapter-1">Chapter 1</a>');
+				expect(toc).toContain('<a href="article_content.xhtml#chapter-2">Chapter 2</a>');
+				expect(toc).toContain('<a href="article_content.xhtml#part-two">Part Two</a>');
+
+				// chapter-1 and chapter-2 are nested inside part-one, before part-two.
+				const partOneIdx = toc.indexOf('#part-one');
+				const chap1Idx = toc.indexOf('#chapter-1');
+				const chap2Idx = toc.indexOf('#chapter-2');
+				const partTwoIdx = toc.indexOf('#part-two');
+				expect(partOneIdx).toBeLessThan(chap1Idx);
+				expect(chap1Idx).toBeLessThan(chap2Idx);
+				expect(chap2Idx).toBeLessThan(partTwoIdx);
+			});
+
+			it('should inject synthetic slug ids into id-less headings in the chapter body', () => {
+				const out = buildEpub({ title: 'Book', html: nestedArticle });
+				const chapter = extractFile(out, 'OEBPS/article_content.xhtml')!;
+
+				expect(chapter).toContain('id="part-one"');
+				expect(chapter).toContain('id="chapter-1"');
+				expect(chapter).toContain('id="chapter-2"');
+				expect(chapter).toContain('id="part-two"');
+			});
+
+			it('should emit ncx navPoints with monotonically increasing playOrder starting after the chapter', () => {
+				const out = buildEpub({ title: 'Book', html: nestedArticle });
+				const ncx = extractFile(out, 'OEBPS/toc.ncx')!;
+
+				// chapter=1, part-one=2, chapter-1=3, chapter-2=4, part-two=5
+				for (let i = 1; i <= 5; i++) {
+					expect(ncx).toContain(`playOrder="${i}"`);
+				}
+				expect(ncx).toContain('<content src="article_content.xhtml#part-one"/>');
+				expect(ncx).toContain('<content src="article_content.xhtml#chapter-1"/>');
+				expect(ncx).toContain('<content src="article_content.xhtml#chapter-2"/>');
+				expect(ncx).toContain('<content src="article_content.xhtml#part-two"/>');
+			});
+
+			it('should set dtb:depth to 1 + tree depth', () => {
+				// Tree is h1 -> [h2, h2], h1 → depth 2 → dtb:depth 3.
+				const out = buildEpub({ title: 'Book', html: nestedArticle });
+				const ncx = extractFile(out, 'OEBPS/toc.ncx')!;
+				expect(ncx).toContain('<meta name="dtb:depth" content="3"/>');
+			});
+
+			it('should extend dtb:depth to 4 when h3 is present', () => {
+				const html = '<body><h1>A</h1><h2>B</h2><h3>C</h3></body>';
+				const out = buildEpub({ title: 'Book', html });
+				const ncx = extractFile(out, 'OEBPS/toc.ncx')!;
+				expect(ncx).toContain('<meta name="dtb:depth" content="4"/>');
+			});
+
+			it('should skip extraction and id injection when generateTocFromHeadings is false', () => {
+				const out = buildEpub({
+					title: 'Book',
+					html: nestedArticle,
+					generateTocFromHeadings: false,
+				});
+				const toc = extractFile(out, 'OEBPS/toc.xhtml')!;
+				const chapter = extractFile(out, 'OEBPS/article_content.xhtml')!;
+				const ncx = extractFile(out, 'OEBPS/toc.ncx')!;
+
+				expect(chapter).not.toContain('id="part-one"');
+				expect(chapter).not.toContain('id="chapter-1"');
+				expect(toc).not.toContain('#part-one');
+				expect(toc).not.toContain('#chapter-1');
+				expect(ncx).toContain('<meta name="dtb:depth" content="1"/>');
+				expect(ncx).not.toContain('<content src="article_content.xhtml#');
+			});
+
+			it('should preserve pre-existing double-quoted heading ids', () => {
+				const html = '<body><h1 id="intro">Intro</h1></body>';
+				const out = buildEpub({ title: 'Book', html });
+				const chapter = extractFile(out, 'OEBPS/article_content.xhtml')!;
+				const toc = extractFile(out, 'OEBPS/toc.xhtml')!;
+
+				expect(chapter).toContain('id="intro"');
+				// No fallback slug is emitted alongside.
+				expect(chapter).not.toContain('id="intro-2"');
+				expect(toc).toContain('href="article_content.xhtml#intro"');
+			});
+
+			it('should preserve pre-existing single-quoted heading ids', () => {
+				const html = "<body><h1 id='summary'>Summary</h1></body>";
+				const out = buildEpub({ title: 'Book', html });
+				const toc = extractFile(out, 'OEBPS/toc.xhtml')!;
+				expect(toc).toContain('href="article_content.xhtml#summary"');
+			});
+
+			it('should disambiguate duplicate heading text with numeric suffixes', () => {
+				const html = '<body><h1>Part</h1><h1>Part</h1><h1>Part</h1></body>';
+				const out = buildEpub({ title: 'Book', html });
+				const chapter = extractFile(out, 'OEBPS/article_content.xhtml')!;
+				const toc = extractFile(out, 'OEBPS/toc.xhtml')!;
+
+				expect(chapter).toContain('id="part"');
+				expect(chapter).toContain('id="part-2"');
+				expect(chapter).toContain('id="part-3"');
+				expect(toc).toContain('#part"');
+				expect(toc).toContain('#part-2"');
+				expect(toc).toContain('#part-3"');
+			});
+
+			it('should strip inline markup from TOC labels while keeping it in the chapter body', () => {
+				const html = '<body><h1>Intro <em>matters</em></h1></body>';
+				const out = buildEpub({ title: 'Book', html });
+				const toc = extractFile(out, 'OEBPS/toc.xhtml')!;
+				const chapter = extractFile(out, 'OEBPS/article_content.xhtml')!;
+
+				// Label is plain text in the TOC.
+				expect(toc).toContain('>Intro matters</a>');
+				expect(toc).not.toContain('>Intro <em>matters');
+				// Slug is derived from the plain-text label.
+				expect(toc).toContain('href="article_content.xhtml#intro-matters"');
+				// Chapter body still contains the original inline tag.
+				expect(chapter).toContain('<em>matters</em>');
+			});
+
+			it('should decode HTML entities for slug generation and XML-escape the TOC label', () => {
+				const html = '<body><h1>Fish &amp; Chips</h1></body>';
+				const out = buildEpub({ title: 'Book', html });
+				const toc = extractFile(out, 'OEBPS/toc.xhtml')!;
+
+				// "&amp;" decoded to "&", then slugify strips it → "fish-chips".
+				expect(toc).toContain('href="article_content.xhtml#fish-chips"');
+				// Label is re-escaped for XHTML output.
+				expect(toc).toContain('>Fish &amp; Chips</a>');
+			});
+
+			it('should detect uppercase heading tags', () => {
+				const html = '<body><H1>Bold Header</H1></body>';
+				const out = buildEpub({ title: 'Book', html });
+				const toc = extractFile(out, 'OEBPS/toc.xhtml')!;
+				expect(toc).toContain('href="article_content.xhtml#bold-header"');
+			});
+
+			it('should ignore h4-h6 tags', () => {
+				const html = '<body><h1>Main</h1><h4>Not in TOC</h4><h5>Also not</h5></body>';
+				const out = buildEpub({ title: 'Book', html });
+				const toc = extractFile(out, 'OEBPS/toc.xhtml')!;
+				const ncx = extractFile(out, 'OEBPS/toc.ncx')!;
+
+				expect(toc).toContain('href="article_content.xhtml#main"');
+				expect(toc).not.toContain('Not in TOC');
+				expect(toc).not.toContain('Also not');
+				expect(ncx).not.toContain('#not-in-toc');
+			});
+
+			it('should emit only the single chapter entry when the input contains no headings', () => {
+				const html = '<body><p>just a paragraph</p></body>';
+				const out = buildEpub({ title: 'Book', html });
+				const toc = extractFile(out, 'OEBPS/toc.xhtml')!;
+				const ncx = extractFile(out, 'OEBPS/toc.ncx')!;
+
+				expect(toc).toContain('<a href="article_content.xhtml">1. Book</a>');
+				expect(toc).not.toContain('article_content.xhtml#');
+				expect(ncx).toContain('<meta name="dtb:depth" content="1"/>');
+				expect(ncx).not.toContain('<content src="article_content.xhtml#');
+			});
+
+			it('should fall back to heading-N ids when heading text has no alphanumeric characters', () => {
+				// em-dashes and punctuation are stripped; slugify returns "", so the
+				// generator falls back to a synthetic heading-N id.
+				const html = '<body><h1>———</h1><h1>!?!</h1></body>';
+				const out = buildEpub({ title: 'Book', html });
+				const chapter = extractFile(out, 'OEBPS/article_content.xhtml')!;
+				const toc = extractFile(out, 'OEBPS/toc.xhtml')!;
+
+				expect(chapter).toContain('id="heading-1"');
+				expect(chapter).toContain('id="heading-2"');
+				expect(toc).toContain('href="article_content.xhtml#heading-1"');
+				expect(toc).toContain('href="article_content.xhtml#heading-2"');
+			});
+		});
 	});
 });

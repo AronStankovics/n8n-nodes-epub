@@ -58,6 +58,7 @@ export class HtmlToEpub implements INodeType {
 					coverUrl?: string;
 					description?: string;
 					fileName?: string;
+					generateTocFromHeadings?: boolean;
 					identifier?: string;
 					imageMaxBytes?: number;
 					imageTimeoutMs?: number;
@@ -147,6 +148,7 @@ export class HtmlToEpub implements INodeType {
 					language: additionalFields.language?.trim() || undefined,
 					publisher: additionalFields.publisher?.trim() || undefined,
 					images: fetchedImages,
+					generateTocFromHeadings: additionalFields.generateTocFromHeadings,
 					customCss: additionalFields.customCss,
 					cssMode: additionalFields.cssMode,
 					cover,
