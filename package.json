@@ -56,11 +56,11 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@n8n/node-cli": "^0.23.1",
-    "@vitest/coverage-v8": "^2.1.5",
     "eslint": "10.2.1",
+    "@vitest/coverage-v8": "^4.0.0",
     "release-it": "20.0.0",
-    "typescript": "5.9.3",
-    "vitest": "^2.1.5"
+    "typescript": "6.0.3",
+    "vitest": "^4.0.0"
   },
   "peerDependencies": {
     "n8n-workflow": "*"
