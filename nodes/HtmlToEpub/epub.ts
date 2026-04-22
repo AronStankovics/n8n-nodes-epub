@@ -14,6 +14,9 @@ export interface EpubInput {
 	description?: string;
 	images?: FetchedImage[];
 	generateTocFromHeadings?: boolean;
+	customCss?: string;
+	cssMode?: 'append' | 'replace';
+	cover?: FetchedImage;
 }
 
 interface Heading {
@@ -24,9 +27,6 @@ interface Heading {
 
 interface HeadingNode extends Heading {
 	children: HeadingNode[];
-	customCss?: string;
-	cssMode?: 'append' | 'replace';
-	cover?: FetchedImage;
 }
 
 const DEFAULT_STYLE = `body {
