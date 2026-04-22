@@ -1,9 +1,10 @@
 /* eslint-disable */
 import { describe, expect, it } from 'vitest';
 
-import { buildEpub, htmlToXhtmlBody, xmlEscape } from '../nodes/HtmlToEpub/epub';
+import { buildEpub } from '../nodes/HtmlToEpub/epub';
 import type { FetchedImage } from '../nodes/HtmlToEpub/images';
 import {
+	extractZipEntry,
 	htmlWithEventHandlers,
 	htmlWithScripts,
 	htmlWithVoidElements,
@@ -13,151 +14,9 @@ import {
 	simpleHtml,
 } from './test-data';
 
-const decoder = new TextDecoder('utf-8');
-
 describe('nodes/HtmlToEpub/epub.ts', () => {
-	describe('xmlEscape()', () => {
-		it('should escape all five XML special characters', () => {
-			expect(xmlEscape(`<a href="x">1 & 2 'q'</a>`)).toBe(
-				'&lt;a href=&quot;x&quot;&gt;1 &amp; 2 &apos;q&apos;&lt;/a&gt;',
-			);
-		});
-
-		it('should double-escape already-escaped ampersands', () => {
-			expect(xmlEscape('fish &amp; chips')).toBe('fish &amp;amp; chips');
-		});
-
-		it('should return empty string unchanged', () => {
-			expect(xmlEscape('')).toBe('');
-		});
-
-		it('should leave plain text untouched', () => {
-			expect(xmlEscape('hello world 123')).toBe('hello world 123');
-		});
-	});
-
-	describe('htmlToXhtmlBody()', () => {
-		it('should extract the body when <body> is present', () => {
-			const out = htmlToXhtmlBody(simpleHtml);
-			expect(out).toContain('<h1>Hello</h1>');
-			expect(out).toContain('<strong>bold</strong>');
-			expect(out).not.toContain('Ignore me');
-			expect(out).not.toContain('<title>');
-		});
-
-		it('should fall back to the raw html when no <body> tag exists', () => {
-			const out = htmlToXhtmlBody('<p>just a paragraph</p>');
-			expect(out).toContain('<p>just a paragraph</p>');
-		});
-
-		it('should slice after </head> when there is no body', () => {
-			const out = htmlToXhtmlBody('<head><meta charset="utf-8"/></head><p>after</p>');
-			expect(out).not.toContain('<meta');
-			expect(out).toContain('<p>after</p>');
-		});
-
-		it('should strip <script>, <iframe>, <style>, and <noscript>', () => {
-			const out = htmlToXhtmlBody(htmlWithScripts);
-			expect(out).not.toContain('<script');
-			expect(out).not.toContain("alert('xss')");
-			expect(out).not.toContain('<iframe');
-			expect(out).not.toContain('<style');
-			expect(out).not.toContain('.evil');
-			expect(out).toContain('Before');
-			expect(out).toContain('Middle');
-			expect(out).toContain('After');
-		});
-
-		it('should strip on* event handlers from attributes', () => {
-			const out = htmlToXhtmlBody(htmlWithEventHandlers);
-			expect(out).not.toContain('onclick');
-			expect(out).not.toContain('onmouseover');
-			expect(out).not.toContain('onload');
-			expect(out).not.toContain('alert(1)');
-			expect(out).not.toContain('stealCookies');
-			expect(out).toContain('Click');
-		});
-
-		it('should self-close every void element', () => {
-			const out = htmlToXhtmlBody(htmlWithVoidElements);
-			expect(out).toMatch(/<br\s*\/>/);
-			expect(out).toMatch(/<hr\s*\/>/);
-			expect(out).toMatch(/<img[^>]*\/>/);
-			expect(out).toMatch(/<meta[^>]*\/>/);
-			expect(out).toMatch(/<input[^>]*\/>/);
-			expect(out).toMatch(/<link[^>]*\/>/);
-			expect(out).not.toMatch(/<br>/);
-			expect(out).not.toMatch(/<hr>/);
-		});
-
-		it('should not double-close already self-closed void elements', () => {
-			const out = htmlToXhtmlBody('<body><img src="x"/><br/></body>');
-			expect(out).not.toContain('//');
-			expect(out).toMatch(/<img[^>]*\/>/);
-		});
-
-		it('should escape stray ampersands but leave existing entities alone', () => {
-			const out = htmlToXhtmlBody(htmlWithAmpersands);
-			expect(out).toContain('salt &amp; vinegar');
-			expect(out).toContain('Fish &amp; chips');
-			expect(out).toContain('&#233;');
-			expect(out).toContain('&eacute;');
-		});
-
-		it('should remove HTML comments', () => {
-			const out = htmlToXhtmlBody('<body><!-- hidden --><p>visible</p></body>');
-			expect(out).not.toContain('hidden');
-			expect(out).toContain('visible');
-		});
-
-		it('should not throw on malformed HTML', () => {
-			expect(() => htmlToXhtmlBody(malformedHtml)).not.toThrow();
-		});
-
-		it('should trim whitespace from the output', () => {
-			const out = htmlToXhtmlBody('<body>   <p>x</p>\n\n   </body>');
-			expect(out.startsWith('<p>')).toBe(true);
-			expect(out.endsWith('</p>')).toBe(true);
-		});
-	});
-
 	describe('buildEpub()', () => {
-		function extractFile(bytes: Uint8Array, name: string): string | null {
-			const nameBytes = new TextEncoder().encode(name);
-			const SIG = [0x50, 0x4b, 0x03, 0x04];
-			for (let i = 0; i < bytes.length - 30; i++) {
-				if (
-					bytes[i] === SIG[0] &&
-					bytes[i + 1] === SIG[1] &&
-					bytes[i + 2] === SIG[2] &&
-					bytes[i + 3] === SIG[3]
-				) {
-					const dv = new DataView(bytes.buffer, bytes.byteOffset + i);
-					const compSize = dv.getUint32(18, true);
-					const nameLen = dv.getUint16(26, true);
-					const extraLen = dv.getUint16(28, true);
-					const entryName = decoder.decode(bytes.subarray(i + 30, i + 30 + nameLen));
-					if (entryName === name) {
-						const dataStart = i + 30 + nameLen + extraLen;
-						return decoder.decode(bytes.subarray(dataStart, dataStart + compSize));
-					}
-					i = i + 30 + nameLen + extraLen + compSize - 1;
-				}
-			}
-			if (name === 'mimetype') {
-				for (let i = 0; i < bytes.length - nameBytes.length; i++) {
-					let ok = true;
-					for (let j = 0; j < nameBytes.length; j++) {
-						if (bytes[i + j] !== nameBytes[j]) {
-							ok = false;
-							break;
-						}
-					}
-					if (ok) return decoder.decode(bytes.subarray(i, i + nameBytes.length));
-				}
-			}
-			return null;
-		}
+		const extractFile = extractZipEntry;
 
 		const baseInput = {
 			title: 'My Book',
@@ -282,6 +141,244 @@ describe('nodes/HtmlToEpub/epub.ts', () => {
 			const out = buildEpub({ ...baseInput, identifier: '   ' });
 			const opf = extractFile(out, 'OEBPS/content.opf');
 			expect(opf!).toMatch(/urn:uuid:[0-9a-f-]{36}/);
+		});
+
+		describe('custom CSS', () => {
+			const customCss = 'body { font-family: Georgia, serif; } p { color: tomato; }';
+
+			it('should emit only the default stylesheet when customCss is not supplied', () => {
+				const out = buildEpub(baseInput);
+				const css = extractFile(out, 'OEBPS/style.css');
+				expect(css).not.toBeNull();
+				expect(css!).toContain('font-family');
+				expect(css!).toContain('.toc-list');
+				expect(css!).not.toContain('tomato');
+			});
+
+			it('should append customCss after the default stylesheet by default', () => {
+				const out = buildEpub({ ...baseInput, customCss });
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				expect(css).toContain('.toc-list');
+				expect(css).toContain('tomato');
+				expect(css.indexOf('.toc-list')).toBeLessThan(css.indexOf('tomato'));
+			});
+
+			it('should append customCss after the default when cssMode=append', () => {
+				const out = buildEpub({ ...baseInput, customCss, cssMode: 'append' });
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				expect(css).toContain('.toc-list');
+				expect(css).toContain('Georgia, serif');
+				expect(css.indexOf('.toc-list')).toBeLessThan(css.indexOf('Georgia, serif'));
+			});
+
+			it('should drop the default stylesheet when cssMode=replace', () => {
+				const out = buildEpub({ ...baseInput, customCss, cssMode: 'replace' });
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				expect(css).toContain('tomato');
+				expect(css).not.toContain('.toc-list');
+				expect(css).not.toContain('BlinkMacSystemFont');
+			});
+
+			it('should ignore empty customCss and emit the default stylesheet', () => {
+				const out = buildEpub({ ...baseInput, customCss: '', cssMode: 'replace' });
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				expect(css).toContain('.toc-list');
+				expect(css).toContain('BlinkMacSystemFont');
+			});
+
+			it('should treat whitespace-only customCss as unset even in replace mode', () => {
+				const out = buildEpub({ ...baseInput, customCss: '   \n\t  ', cssMode: 'replace' });
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				expect(css).toContain('.toc-list');
+				expect(css).toContain('BlinkMacSystemFont');
+			});
+
+			it('should trim surrounding whitespace on customCss before bundling', () => {
+				const out = buildEpub({
+					...baseInput,
+					customCss: '\n\n  p { color: red; }  \n\n',
+					cssMode: 'replace',
+				});
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				expect(css.startsWith('p { color: red; }')).toBe(true);
+				expect(css.endsWith('\n')).toBe(true);
+			});
+
+			it('should keep the stylesheet manifest entry regardless of CSS mode', () => {
+				for (const mode of ['append', 'replace'] as const) {
+					const out = buildEpub({ ...baseInput, customCss, cssMode: mode });
+					const opf = extractFile(out, 'OEBPS/content.opf')!;
+					expect(opf).toContain('<item id="css" href="style.css" media-type="text/css"/>');
+				}
+			});
+
+			it('should not double-escape CSS content (style.css is not XML-escaped)', () => {
+				const out = buildEpub({
+					...baseInput,
+					customCss: 'a[href^="https://"] { color: green; }',
+					cssMode: 'replace',
+				});
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				expect(css).toContain('a[href^="https://"]');
+				expect(css).not.toContain('&quot;');
+				expect(css).not.toContain('&amp;');
+			});
+
+			it('should hoist leading @charset above the default stylesheet in append mode', () => {
+				const out = buildEpub({
+					...baseInput,
+					customCss: '@charset "utf-8";\nbody { color: red; }',
+				});
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				expect(css.startsWith('@charset "utf-8";')).toBe(true);
+				const charsetIdx = css.indexOf('@charset');
+				const defaultIdx = css.indexOf('BlinkMacSystemFont');
+				const userIdx = css.indexOf('color: red');
+				expect(charsetIdx).toBeLessThan(defaultIdx);
+				expect(defaultIdx).toBeLessThan(userIdx);
+			});
+
+			it('should hoist leading @import rules above the default stylesheet in append mode', () => {
+				const out = buildEpub({
+					...baseInput,
+					customCss:
+						'@import url("https://fonts.example.com/font.css");\nbody { font-family: MyFont; }',
+				});
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				const importIdx = css.indexOf('@import');
+				const defaultIdx = css.indexOf('BlinkMacSystemFont');
+				const userIdx = css.indexOf('MyFont');
+				expect(importIdx).toBeGreaterThanOrEqual(0);
+				expect(importIdx).toBeLessThan(defaultIdx);
+				expect(defaultIdx).toBeLessThan(userIdx);
+			});
+
+			it('should hoist multiple @import rules preserving their order', () => {
+				const out = buildEpub({
+					...baseInput,
+					customCss:
+						"@import 'a.css';\n@import url(b.css);\nbody { color: red; }",
+				});
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				const aIdx = css.indexOf("@import 'a.css';");
+				const bIdx = css.indexOf('@import url(b.css);');
+				const defaultIdx = css.indexOf('BlinkMacSystemFont');
+				expect(aIdx).toBeGreaterThanOrEqual(0);
+				expect(bIdx).toBeGreaterThan(aIdx);
+				expect(bIdx).toBeLessThan(defaultIdx);
+			});
+
+			it('should hoist @charset before @import even when written in either order', () => {
+				const out = buildEpub({
+					...baseInput,
+					customCss: '@import "a.css";\n@charset "utf-8";\nbody { color: red; }',
+				});
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				const charsetIdx = css.indexOf('@charset "utf-8";');
+				const importIdx = css.indexOf('@import "a.css";');
+				const defaultIdx = css.indexOf('BlinkMacSystemFont');
+				expect(charsetIdx).toBeGreaterThanOrEqual(0);
+				expect(importIdx).toBeGreaterThanOrEqual(0);
+				expect(charsetIdx).toBeLessThan(importIdx);
+				expect(importIdx).toBeLessThan(defaultIdx);
+			});
+
+			it('should keep only the first @charset when multiple are supplied', () => {
+				const out = buildEpub({
+					...baseInput,
+					customCss:
+						'@charset "utf-8";\n@charset "iso-8859-1";\nbody { color: red; }',
+				});
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				expect(css).toContain('@charset "utf-8";');
+				expect(css).not.toContain('@charset "iso-8859-1";');
+			});
+
+			it('should not hoist @import that appears after other rules', () => {
+				const out = buildEpub({
+					...baseInput,
+					customCss: 'body { color: red; }\n@import url("late.css");',
+				});
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				const defaultIdx = css.indexOf('BlinkMacSystemFont');
+				const lateImport = css.indexOf('@import url("late.css")');
+				expect(lateImport).toBeGreaterThan(defaultIdx);
+			});
+
+			it('should leave user CSS untouched when it only contains @charset/@import rules', () => {
+				const out = buildEpub({
+					...baseInput,
+					customCss: '@charset "utf-8";\n@import url("only.css");',
+				});
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				expect(css.startsWith('@charset "utf-8";')).toBe(true);
+				expect(css).toContain('@import url("only.css");');
+				expect(css).toContain('BlinkMacSystemFont');
+				expect(css.indexOf('@import')).toBeLessThan(css.indexOf('BlinkMacSystemFont'));
+			});
+
+			it('should not hoist at-rules when cssMode=replace (user CSS is the whole sheet)', () => {
+				const out = buildEpub({
+					...baseInput,
+					customCss: '@import url("a.css");\nbody { color: red; }',
+					cssMode: 'replace',
+				});
+				const css = extractFile(out, 'OEBPS/style.css')!;
+				expect(css.startsWith('@import url("a.css");')).toBe(true);
+				expect(css).not.toContain('BlinkMacSystemFont');
+			});
+		});
+
+		it('should embed the cover page, image, and OPF metadata when input.cover is set', () => {
+			const cover: FetchedImage = {
+				id: 'cover-image',
+				localPath: 'images/cover.png',
+				mimeType: 'image/png',
+				data: new Uint8Array(pngPixel),
+			};
+			const out = buildEpub({ ...baseInput, cover });
+
+			expect(extractFile(out, 'OEBPS/cover.xhtml')).not.toBeNull();
+			expect(extractFile(out, 'OEBPS/images/cover.png')).not.toBeNull();
+
+			const opf = extractFile(out, 'OEBPS/content.opf')!;
+			expect(opf).toContain(
+				'<item id="cover-image" properties="cover-image" href="images/cover.png" media-type="image/png"/>',
+			);
+			expect(opf).toContain(
+				'<item id="cover-page" href="cover.xhtml" media-type="application/xhtml+xml"/>',
+			);
+			expect(opf).toContain('<itemref idref="cover-page"/>');
+			// EPUB 2 fallback meta so older readers still recognise the cover.
+			expect(opf).toContain('<meta name="cover" content="cover-image"/>');
+			expect(opf).toContain('<reference type="cover" title="Cover" href="cover.xhtml"/>');
+		});
+
+		it('should omit cover-related OPF entries when input.cover is undefined', () => {
+			const out = buildEpub(baseInput);
+			expect(extractFile(out, 'OEBPS/cover.xhtml')).toBeNull();
+			const opf = extractFile(out, 'OEBPS/content.opf')!;
+			expect(opf).not.toContain('cover-image');
+			expect(opf).not.toContain('cover.xhtml');
+		});
+
+		it('should XML-escape cover.localPath and cover.mimeType in OPF attributes and cover.xhtml', () => {
+			// A pathological cover that an external caller could theoretically construct.
+			// Current callers build safe values, but buildEpub/EpubInput are exported.
+			const cover: FetchedImage = {
+				id: 'cover-image',
+				localPath: `images/cover".jpg`,
+				mimeType: `image/jpeg" injected="x`,
+				data: new Uint8Array(pngPixel),
+			};
+			const out = buildEpub({ ...baseInput, cover });
+			const opf = extractFile(out, 'OEBPS/content.opf')!;
+			const coverXhtml = extractFile(out, 'OEBPS/cover.xhtml')!;
+			for (const doc of [opf, coverXhtml]) {
+				expect(doc).not.toContain('" injected="');
+				expect(doc).not.toContain(`cover".jpg`);
+			}
+			expect(opf).toContain('&quot;');
 		});
 	});
 });

@@ -8,4 +8,4 @@ dist
 tsconfig.tsbuildinfo
 *.epub
 coverage
-.nyc_output
+.claude/

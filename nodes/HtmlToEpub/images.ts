@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 
 import type { IExecuteFunctions } from 'n8n-workflow';
 
+import { redactUrl } from './url';
+
 export interface FetchedImage {
 	localPath: string; // e.g. "images/img2ebe3c1897c845cc35ffe8c61955be95.jpeg"
 	id: string; // manifest id, e.g. "img2ebe3c1897c845cc35ffe8c61955be95"
@@ -23,6 +25,10 @@ const EXT_FOR_MIME: Record<string, string> = {
 	'image/webp': 'webp',
 	'image/svg+xml': 'svg',
 	'image/bmp': 'bmp',
+	'image/avif': 'avif',
+	'image/heic': 'heic',
+	'image/heif': 'heif',
+	'image/tiff': 'tiff',
 };
 
 const EXT_FROM_URL: Record<string, string> = {
@@ -33,6 +39,11 @@ const EXT_FROM_URL: Record<string, string> = {
 	webp: 'webp',
 	svg: 'svg',
 	bmp: 'bmp',
+	avif: 'avif',
+	heic: 'heic',
+	heif: 'heif',
+	tif: 'tiff',
+	tiff: 'tiff',
 };
 
 // Regex-based URL extraction (no DOM dependency).
@@ -63,6 +74,14 @@ function mimeForExt(ext: string): string {
 			return 'image/svg+xml';
 		case 'bmp':
 			return 'image/bmp';
+		case 'avif':
+			return 'image/avif';
+		case 'heic':
+			return 'image/heic';
+		case 'heif':
+			return 'image/heif';
+		case 'tiff':
+			return 'image/tiff';
 		default:
 			return 'application/octet-stream';
 	}
@@ -114,7 +133,7 @@ export async function fetchImages(
 			const normalizedMime = headerContentType.split(';')[0].trim().toLowerCase();
 			const extFromHeader = EXT_FOR_MIME[normalizedMime];
 			const ext = extFromHeader || extForUrl(url) || 'jpeg';
-			const mimeType = normalizedMime.startsWith('image/') ? normalizedMime : mimeForExt(ext);
+			const mimeType = extFromHeader ? normalizedMime : mimeForExt(ext);
 
 			const hash = hashUrl(url);
 			const filename = `img${hash}.${ext}`;
@@ -129,6 +148,63 @@ export async function fetchImages(
 		}
 	}
 	return result;
+}
+
+// Fetch a single image and register it as the book cover. Unlike fetchImages,
+// this throws on failure — if the user explicitly asked for a cover, a silent
+// fallback would be surprising.
+export async function fetchCoverImage(
+	executeFns: IExecuteFunctions,
+	url: string,
+	options: InlineOptions,
+): Promise<FetchedImage> {
+	const response = (await executeFns.helpers.httpRequest({
+		method: 'GET',
+		url,
+		returnFullResponse: true,
+		encoding: 'arraybuffer',
+		timeout: options.timeoutMs,
+		headers: { 'User-Agent': options.userAgent },
+	})) as { body: Buffer | ArrayBuffer | Uint8Array; headers: Record<string, string> };
+
+	const bodyBytes =
+		response.body instanceof Uint8Array
+			? response.body
+			: new Uint8Array(response.body as ArrayBuffer);
+
+	if (bodyBytes.byteLength > options.maxBytes) {
+		throw new Error(
+			`Cover image at ${redactUrl(url)} is larger than the configured maximum (${options.maxBytes} bytes).`,
+		);
+	}
+
+	const headerContentType = response.headers['content-type'] || '';
+	const normalizedMime = headerContentType.split(';')[0].trim().toLowerCase();
+	const extFromHeader = EXT_FOR_MIME[normalizedMime];
+	const ext = extFromHeader || extForUrl(url) || 'jpeg';
+	const mimeType = extFromHeader ? normalizedMime : mimeForExt(ext);
+
+	return {
+		localPath: `images/cover.${ext}`,
+		id: 'cover-image',
+		mimeType,
+		data: bodyBytes,
+	};
+}
+
+// Build a cover image descriptor from in-memory bytes (e.g. an n8n binary
+// property on the input item). The mime type comes from the binary metadata.
+export function coverFromBinary(buffer: Uint8Array, declaredMime: string): FetchedImage {
+	const normalizedMime = (declaredMime || '').split(';')[0].trim().toLowerCase();
+	const extFromMime = EXT_FOR_MIME[normalizedMime];
+	const ext = extFromMime || 'jpeg';
+	const mimeType = extFromMime ? normalizedMime : mimeForExt(ext);
+	return {
+		localPath: `images/cover.${ext}`,
+		id: 'cover-image',
+		mimeType,
+		data: buffer,
+	};
 }
 
 // Rewrite every `<img src>` to point at the local path inside the EPUB, where

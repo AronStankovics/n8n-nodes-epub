@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 import { HtmlToEpub } from '../nodes/HtmlToEpub/HtmlToEpub.node';
 import {
+	extractZipEntry,
 	htmlWithImages,
 	makeExecuteFunctionsMock,
 	pngPixel,
@@ -35,6 +36,33 @@ function buildParams(overrides: Params = {}): Params {
 async function runExecute(mockBundle: ExecuteMock) {
 	const node = new HtmlToEpub();
 	return node.execute.call(mockBundle.mock);
+}
+
+function captureEpubBuffer(): {
+	prepareBinaryData: (
+		data: Buffer,
+		fileName?: string,
+		mimeType?: string,
+	) => Promise<Record<string, unknown>>;
+	get: () => Buffer;
+} {
+	let captured: Buffer | null = null;
+	return {
+		prepareBinaryData: async (data, fileName, mimeType) => {
+			captured = Buffer.from(data);
+			return {
+				data: captured.toString('base64'),
+				mimeType: mimeType ?? 'application/octet-stream',
+				fileName,
+				fileExtension: fileName?.split('.').pop(),
+				fileSize: captured.length,
+			};
+		},
+		get: () => {
+			if (!captured) throw new Error('prepareBinaryData was never called');
+			return captured;
+		},
+	};
 }
 
 describe('nodes/HtmlToEpub/HtmlToEpub.node.ts', () => {
@@ -275,6 +303,194 @@ describe('nodes/HtmlToEpub/HtmlToEpub.node.ts', () => {
 			});
 			await runExecute(bundle);
 			expect(bundle.calls.httpRequest[0].timeout).toBe(1234);
+		});
+	});
+
+	describe('description — Additional Fields', () => {
+		it('should expose Custom CSS and CSS Mode fields with the expected options', () => {
+			const node = new HtmlToEpub();
+			const additionalFields = node.description.properties.find(
+				(p) => p.name === 'additionalFields',
+			);
+			expect(additionalFields).toBeDefined();
+			const options = (additionalFields as { options?: Array<Record<string, unknown>> }).options!;
+			const optionNames = options.map((o) => o.name);
+			expect(optionNames).toEqual(expect.arrayContaining(['cssMode', 'customCss']));
+
+			const cssMode = options.find((o) => o.name === 'cssMode') as {
+				type: string;
+				default: string;
+				options: Array<{ value: string }>;
+			};
+			expect(cssMode.type).toBe('options');
+			expect(cssMode.default).toBe('append');
+			expect(cssMode.options.map((o) => o.value).sort()).toEqual(['append', 'replace']);
+
+			const customCss = options.find((o) => o.name === 'customCss') as {
+				type: string;
+				default: string;
+				typeOptions?: { rows?: number };
+			};
+			expect(customCss.type).toBe('string');
+			expect(customCss.default).toBe('');
+			expect(customCss.typeOptions?.rows).toBeGreaterThan(1);
+		});
+	});
+
+	describe('execute() — custom CSS', () => {
+		const customCss = 'body { font-family: Georgia, serif; } .note { color: tomato; }';
+
+		it('should bundle custom CSS after the default stylesheet by default (append)', async () => {
+			const capture = captureEpubBuffer();
+			const bundle = makeExecuteFunctionsMock({
+				parameters: buildParams({
+					additionalFields: { ...defaultAdditional, customCss },
+				}),
+				prepareBinaryData: capture.prepareBinaryData,
+			});
+			await runExecute(bundle);
+			const css = extractZipEntry(capture.get(), 'OEBPS/style.css');
+			expect(css).not.toBeNull();
+			expect(css!).toContain('.toc-list');
+			expect(css!).toContain('Georgia, serif');
+			expect(css!.indexOf('.toc-list')).toBeLessThan(css!.indexOf('Georgia, serif'));
+		});
+
+		it('should replace the default stylesheet when cssMode=replace', async () => {
+			const capture = captureEpubBuffer();
+			const bundle = makeExecuteFunctionsMock({
+				parameters: buildParams({
+					additionalFields: { ...defaultAdditional, customCss, cssMode: 'replace' },
+				}),
+				prepareBinaryData: capture.prepareBinaryData,
+			});
+			await runExecute(bundle);
+			const css = extractZipEntry(capture.get(), 'OEBPS/style.css');
+			expect(css).not.toBeNull();
+			expect(css!).toContain('Georgia, serif');
+			expect(css!).not.toContain('.toc-list');
+			expect(css!).not.toContain('BlinkMacSystemFont');
+		});
+
+		it('should ignore empty customCss and emit the default stylesheet only', async () => {
+			const capture = captureEpubBuffer();
+			const bundle = makeExecuteFunctionsMock({
+				parameters: buildParams({
+					additionalFields: { ...defaultAdditional, customCss: '', cssMode: 'replace' },
+				}),
+				prepareBinaryData: capture.prepareBinaryData,
+			});
+			await runExecute(bundle);
+			const css = extractZipEntry(capture.get(), 'OEBPS/style.css')!;
+			expect(css).toContain('.toc-list');
+			expect(css).toContain('BlinkMacSystemFont');
+		});
+
+		it('should treat whitespace-only customCss as unset', async () => {
+			const capture = captureEpubBuffer();
+			const bundle = makeExecuteFunctionsMock({
+				parameters: buildParams({
+					additionalFields: { ...defaultAdditional, customCss: '   \n\t  ', cssMode: 'replace' },
+				}),
+				prepareBinaryData: capture.prepareBinaryData,
+			});
+			await runExecute(bundle);
+			const css = extractZipEntry(capture.get(), 'OEBPS/style.css')!;
+			expect(css).toContain('.toc-list');
+		});
+
+		it('should emit only the default stylesheet when customCss is omitted', async () => {
+			const capture = captureEpubBuffer();
+			const bundle = makeExecuteFunctionsMock({
+				parameters: buildParams(),
+				prepareBinaryData: capture.prepareBinaryData,
+			});
+			await runExecute(bundle);
+			const css = extractZipEntry(capture.get(), 'OEBPS/style.css')!;
+			expect(css).toContain('.toc-list');
+			expect(css).not.toContain('Georgia, serif');
+		});
+	});
+
+	describe('execute() — cover image', () => {
+		it('should set hasCover=true and fetch the URL when coverUrl is provided', async () => {
+			const bundle = makeExecuteFunctionsMock({
+				parameters: buildParams({
+					additionalFields: {
+						...defaultAdditional,
+						coverUrl: 'https://example.com/cover.png',
+					},
+				}),
+				httpRequest: async () => ({
+					body: pngPixel,
+					headers: { 'content-type': 'image/png' },
+				}),
+			});
+			const result = await runExecute(bundle);
+			expect(bundle.calls.httpRequest).toHaveLength(1);
+			expect(bundle.calls.httpRequest[0].url).toBe('https://example.com/cover.png');
+			expect((result[0][0].json as Record<string, unknown>).hasCover).toBe(true);
+		});
+
+		it('should set hasCover=false when no cover is configured', async () => {
+			const bundle = makeExecuteFunctionsMock({ parameters: buildParams() });
+			const result = await runExecute(bundle);
+			expect((result[0][0].json as Record<string, unknown>).hasCover).toBe(false);
+		});
+
+		it('should prefer the binary cover over the URL cover when both are set', async () => {
+			const bundle = makeExecuteFunctionsMock({
+				parameters: buildParams({
+					additionalFields: {
+						...defaultAdditional,
+						coverBinaryProperty: 'cover',
+						coverUrl: 'https://example.com/cover.png',
+					},
+				}),
+				assertBinaryData: () => ({ mimeType: 'image/png' }),
+				getBinaryDataBuffer: async () => Buffer.from(pngPixel),
+			});
+			const result = await runExecute(bundle);
+			expect(bundle.calls.httpRequest).toHaveLength(0);
+			expect(bundle.calls.getBinaryDataBuffer[0]).toEqual({ itemIndex: 0, property: 'cover' });
+			expect((result[0][0].json as Record<string, unknown>).hasCover).toBe(true);
+		});
+
+		it('should throw NodeOperationError with itemIndex when the binary cover exceeds imageMaxBytes', async () => {
+			const bundle = makeExecuteFunctionsMock({
+				parameters: buildParams({
+					additionalFields: {
+						...defaultAdditional,
+						coverBinaryProperty: 'cover',
+						imageMaxBytes: 10,
+					},
+				}),
+				assertBinaryData: () => ({ mimeType: 'image/png' }),
+				getBinaryDataBuffer: async () => Buffer.alloc(100),
+			});
+			const err = await runExecute(bundle).catch((e) => e as unknown);
+			expect(err).toBeInstanceOf(NodeOperationError);
+			expect((err as Error).message).toMatch(/Cover image exceeds the maximum allowed size/);
+			expect((err as { context?: { itemIndex?: number } }).context?.itemIndex).toBe(0);
+		});
+
+		it('should propagate fetchCoverImage errors (e.g. URL cover too large)', async () => {
+			const bundle = makeExecuteFunctionsMock({
+				parameters: buildParams({
+					additionalFields: {
+						...defaultAdditional,
+						coverUrl: 'https://example.com/huge.png',
+						imageMaxBytes: 10,
+					},
+				}),
+				httpRequest: async () => ({
+					body: Buffer.alloc(100),
+					headers: { 'content-type': 'image/png' },
+				}),
+			});
+			const err = await runExecute(bundle).catch((e) => e as unknown);
+			expect(err).toBeInstanceOf(NodeOperationError);
+			expect((err as Error).message).toMatch(/larger than the configured maximum/);
 		});
 	});
 });

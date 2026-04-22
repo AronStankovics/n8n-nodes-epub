@@ -7,7 +7,15 @@ import type {
 import { NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
 
 import { buildEpub, type EpubInput } from './epub';
-import { extractImageUrls, fetchImages, rewriteImgSrc } from './images';
+import {
+	coverFromBinary,
+	extractImageUrls,
+	fetchCoverImage,
+	fetchImages,
+	rewriteImgSrc,
+	type FetchedImage,
+} from './images';
+import { properties } from './properties';
 
 type InputSource = 'string' | 'binary';
 
@@ -27,148 +35,7 @@ export class HtmlToEpub implements INodeType {
 		inputs: [NodeConnectionTypes.Main],
 		outputs: [NodeConnectionTypes.Main],
 		usableAsTool: true,
-		properties: [
-			{
-				displayName: 'Input Source',
-				name: 'inputSource',
-				type: 'options',
-				default: 'string',
-				options: [
-					{
-						name: 'HTML String',
-						value: 'string',
-						description: 'Pass HTML directly as a string',
-					},
-					{
-						name: 'Binary',
-						value: 'binary',
-						description: 'Read HTML from a binary property on the input item',
-					},
-				],
-			},
-			{
-				displayName: 'HTML',
-				name: 'html',
-				type: 'string',
-				typeOptions: { rows: 8 },
-				default: '',
-				required: true,
-				placeholder: '<html>…</html>',
-				displayOptions: { show: { inputSource: ['string'] } },
-			},
-			{
-				displayName: 'Input Binary Property',
-				name: 'inputBinaryProperty',
-				type: 'string',
-				default: 'data',
-				required: true,
-				description: 'Name of the binary property that holds the HTML',
-				displayOptions: { show: { inputSource: ['binary'] } },
-			},
-			{
-				displayName: 'Title',
-				name: 'title',
-				type: 'string',
-				default: '',
-				required: true,
-				placeholder: 'My Newsletter',
-				description: 'Title of the e-book — also used as chapter heading and navigation label',
-			},
-			{
-				displayName: 'Output Binary Property',
-				name: 'outputBinaryProperty',
-				type: 'string',
-				default: 'data',
-				description: 'Name of the binary property the generated EPUB will be written to',
-			},
-			{
-				displayName: 'Additional Fields',
-				name: 'additionalFields',
-				type: 'collection',
-				placeholder: 'Add Field',
-				default: {},
-				options: [
-					{
-						displayName: 'Author',
-						name: 'author',
-						type: 'string',
-						default: '',
-						description: 'Author of the article, stored as dc:creator',
-					},
-					{
-						displayName: 'Description',
-						name: 'description',
-						type: 'string',
-						default: '',
-						description: 'Short description stored as dc:description',
-					},
-					{
-						displayName: 'Fetch Image Timeout (Ms)',
-						name: 'imageTimeoutMs',
-						type: 'number',
-						default: 30000,
-						description:
-							'How long to wait for each image download before giving up. Failed images keep their remote src as a fallback.',
-					},
-					{
-						displayName: 'File Name',
-						name: 'fileName',
-						type: 'string',
-						default: '',
-						placeholder: 'article.epub',
-						description:
-							'Override the output file name. Defaults to the title plus ".epub".',
-					},
-					{
-						displayName: 'Generate TOC From Headings',
-						name: 'generateTocFromHeadings',
-						type: 'boolean',
-						default: true,
-						description:
-							'Whether to extract h1–h3 tags from the article and add them as nested entries in the table of contents. Auto-generates IDs on headings that don\'t already have one.',
-					},
-					{
-						displayName: 'Identifier (UUID)',
-						name: 'identifier',
-						type: 'string',
-						default: '',
-						placeholder: '00000000-0000-0000-0000-000000000000',
-						description:
-							'Stable identifier for the book. When empty, a random UUID is generated on every run.',
-					},
-					{
-						displayName: 'Inline Images',
-						name: 'inlineImages',
-						type: 'boolean',
-						default: true,
-						description:
-							'Whether to download every remote image in the HTML and bundle it inside the EPUB. Needed for offline reading on Kindle/Kobo.',
-					},
-					{
-						displayName: 'Language',
-						name: 'language',
-						type: 'string',
-						default: 'en',
-						placeholder: 'en',
-						description: 'BCP-47 language tag (e.g. en, en-US, de, fr). Defaults to "en".',
-					},
-					{
-						displayName: 'Max Image Bytes',
-						name: 'imageMaxBytes',
-						type: 'number',
-						default: 10485760,
-						description: 'Skip any single image larger than this number of bytes',
-					},
-					{
-						displayName: 'Publisher',
-						name: 'publisher',
-						type: 'string',
-						default: '',
-						description: 'Publisher stored as dc:publisher',
-					},
-				],
-			},
-		],
+		properties,
 	};
 
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
@@ -185,6 +52,10 @@ export class HtmlToEpub implements INodeType {
 				) as string;
 				const additionalFields = this.getNodeParameter('additionalFields', itemIndex, {}) as {
 					author?: string;
+					cssMode?: 'append' | 'replace';
+					customCss?: string;
+					coverBinaryProperty?: string;
+					coverUrl?: string;
 					description?: string;
 					fileName?: string;
 					generateTocFromHeadings?: boolean;
@@ -224,6 +95,9 @@ export class HtmlToEpub implements INodeType {
 					);
 				}
 
+				const imageTimeoutMs = additionalFields.imageTimeoutMs ?? 30000;
+				const imageMaxBytes = additionalFields.imageMaxBytes ?? 10 * 1024 * 1024;
+
 				let finalHtml = html;
 				const fetchedImages = [];
 				const inlineImages = additionalFields.inlineImages ?? true;
@@ -231,13 +105,38 @@ export class HtmlToEpub implements INodeType {
 					const urls = extractImageUrls(html);
 					if (urls.length > 0) {
 						const imageMap = await fetchImages(this, urls, {
-							timeoutMs: additionalFields.imageTimeoutMs ?? 30000,
-							maxBytes: additionalFields.imageMaxBytes ?? 10 * 1024 * 1024,
+							timeoutMs: imageTimeoutMs,
+							maxBytes: imageMaxBytes,
 							userAgent: 'n8n-nodes-epub/1.0',
 						});
 						finalHtml = rewriteImgSrc(html, imageMap);
 						for (const img of imageMap.values()) fetchedImages.push(img);
 					}
+				}
+
+				let cover: FetchedImage | undefined;
+				const coverBinaryProperty = additionalFields.coverBinaryProperty?.trim();
+				const coverUrl = additionalFields.coverUrl?.trim();
+				if (coverBinaryProperty) {
+					const binary = this.helpers.assertBinaryData(itemIndex, coverBinaryProperty);
+					const buffer = await this.helpers.getBinaryDataBuffer(
+						itemIndex,
+						coverBinaryProperty,
+					);
+					if (buffer.length > imageMaxBytes) {
+						throw new NodeOperationError(
+							this.getNode(),
+							`Cover image exceeds the maximum allowed size of ${imageMaxBytes} bytes`,
+							{ itemIndex },
+						);
+					}
+					cover = coverFromBinary(new Uint8Array(buffer), binary.mimeType || '');
+				} else if (coverUrl) {
+					cover = await fetchCoverImage(this, coverUrl, {
+						timeoutMs: imageTimeoutMs,
+						maxBytes: imageMaxBytes,
+						userAgent: 'n8n-nodes-epub/1.0',
+					});
 				}
 
 				const epubInput: EpubInput = {
@@ -250,6 +149,9 @@ export class HtmlToEpub implements INodeType {
 					publisher: additionalFields.publisher?.trim() || undefined,
 					images: fetchedImages,
 					generateTocFromHeadings: additionalFields.generateTocFromHeadings,
+					customCss: additionalFields.customCss,
+					cssMode: additionalFields.cssMode,
+					cover,
 				};
 
 				const epubBytes = buildEpub(epubInput);
@@ -267,6 +169,7 @@ export class HtmlToEpub implements INodeType {
 						size: epubBytes.length,
 						title,
 						imagesBundled: fetchedImages.length,
+						hasCover: cover != null,
 					},
 					binary: { [outputBinaryProperty]: binaryData },
 					pairedItem: { item: itemIndex },

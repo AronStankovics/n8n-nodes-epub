@@ -88,6 +88,38 @@ export const pngPixel: Buffer = Buffer.from(
 export const jpegStub: Buffer = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
 
 // -----------------------------------------------------------------------------
+// ZIP helpers
+// -----------------------------------------------------------------------------
+
+// Scans a ZIP archive produced by buildZip() and returns the bytes of the
+// named entry, decoded as UTF-8. Assumes STORE (uncompressed) entries — which
+// is what buildZip() always produces today. Returns null when the entry is
+// missing.
+export function extractZipEntry(bytes: Uint8Array, name: string): string | null {
+	const decoder = new TextDecoder('utf-8');
+	for (let i = 0; i < bytes.length - 30; i++) {
+		if (
+			bytes[i] === 0x50 &&
+			bytes[i + 1] === 0x4b &&
+			bytes[i + 2] === 0x03 &&
+			bytes[i + 3] === 0x04
+		) {
+			const dv = new DataView(bytes.buffer, bytes.byteOffset + i);
+			const compSize = dv.getUint32(18, true);
+			const nameLen = dv.getUint16(26, true);
+			const extraLen = dv.getUint16(28, true);
+			const entryName = decoder.decode(bytes.subarray(i + 30, i + 30 + nameLen));
+			if (entryName === name) {
+				const dataStart = i + 30 + nameLen + extraLen;
+				return decoder.decode(bytes.subarray(dataStart, dataStart + compSize));
+			}
+			i = i + 30 + nameLen + extraLen + compSize - 1;
+		}
+	}
+	return null;
+}
+
+// -----------------------------------------------------------------------------
 // IExecuteFunctions mock
 // -----------------------------------------------------------------------------
 
@@ -116,6 +148,7 @@ export interface ExecuteMockOptions {
 		fileName?: string,
 		mimeType?: string,
 	) => Promise<Record<string, unknown>>;
+	assertBinaryData?: (itemIndex: number, property: string) => { mimeType?: string };
 }
 
 export interface ExecuteMock {
@@ -171,6 +204,10 @@ export function makeExecuteFunctionsMock(opts: ExecuteMockOptions = {}): Execute
 			fileSize: data.length,
 		}));
 
+	const assertBinaryData =
+		opts.assertBinaryData ??
+		((): { mimeType?: string } => ({ mimeType: 'application/octet-stream' }));
+
 	const mock = {
 		getInputData: () => opts.inputData ?? ([{ json: {} }] as INodeExecutionData[]),
 		getNode: () => ({
@@ -197,6 +234,8 @@ export function makeExecuteFunctionsMock(opts: ExecuteMockOptions = {}): Execute
 				calls.prepareBinaryData.push({ fileName, mimeType, size: data.length });
 				return prepareBinaryData(data, fileName, mimeType);
 			},
+			assertBinaryData: (itemIndex: number, property: string) =>
+				assertBinaryData(itemIndex, property),
 		},
 	};
 

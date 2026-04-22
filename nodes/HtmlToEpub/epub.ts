@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import type { FetchedImage } from './images';
+import { htmlToXhtmlBody, xmlEscape } from './xhtml';
 import { buildZip, type ZipEntry } from './zip';
 
 export interface EpubInput {
@@ -23,6 +24,9 @@ interface Heading {
 
 interface HeadingNode extends Heading {
 	children: HeadingNode[];
+	customCss?: string;
+	cssMode?: 'append' | 'replace';
+	cover?: FetchedImage;
 }
 
 const DEFAULT_STYLE = `body {
@@ -240,6 +244,7 @@ function treeDepth(nodes: HeadingNode[]): number {
 }
 
 function renderChapter(input: EpubInput, htmlOverride?: string): string {
+function renderChapter(input: EpubInput): string {
 	const title = xmlEscape(input.title);
 	const bodyHtml = htmlToXhtmlBody(htmlOverride ?? input.html);
 	const byline = input.author
@@ -262,7 +267,12 @@ ${byline}${bodyHtml}
 `;
 }
 
-function renderOpf(input: EpubInput, uid: string, images: FetchedImage[]): string {
+function renderOpf(
+	input: EpubInput,
+	uid: string,
+	images: FetchedImage[],
+	cover: FetchedImage | undefined,
+): string {
 	const lang = input.language || 'en';
 	const title = xmlEscape(input.title);
 	const author = input.author ? `<dc:creator id="creator">${xmlEscape(input.author)}</dc:creator>` : '';
@@ -275,6 +285,15 @@ function renderOpf(input: EpubInput, uid: string, images: FetchedImage[]): strin
 	const now = new Date();
 	const datePart = now.toISOString().slice(0, 10);
 	const modified = now.toISOString().replace(/\.\d{3}Z$/, 'Z');
+	// EPUB 2 fallback meta for readers that don't understand properties="cover-image".
+	const coverMeta = cover ? `<meta name="cover" content="cover-image"/>` : '';
+	const coverManifestItems = cover
+		? `<item id="cover-image" properties="cover-image" href="${xmlEscape(cover.localPath)}" media-type="${xmlEscape(cover.mimeType)}"/>\n<item id="cover-page" href="cover.xhtml" media-type="application/xhtml+xml"/>`
+		: '';
+	const coverSpineItem = cover ? `<itemref idref="cover-page"/>` : '';
+	const coverGuideRef = cover
+		? `<reference type="cover" title="Cover" href="cover.xhtml"/>`
+		: '';
 	const imageItems = images
 		.map(
 			(img) =>
@@ -297,21 +316,46 @@ ${publisher}
 ${description}
 <dc:date>${datePart}</dc:date>
 <meta property="dcterms:modified">${modified}</meta>
+${coverMeta}
 </metadata>
 <manifest>
 <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
 <item id="toc" href="toc.xhtml" media-type="application/xhtml+xml" properties="nav"/>
 <item id="css" href="style.css" media-type="text/css"/>
 <item id="chapter-1" href="article_content.xhtml" media-type="application/xhtml+xml"/>
+${coverManifestItems}
 ${imageItems}
 </manifest>
 <spine toc="ncx">
+${coverSpineItem}
 <itemref idref="chapter-1"/>
 </spine>
 <guide>
+${coverGuideRef}
 <reference type="text" title="Table of Content" href="toc.xhtml"/>
 </guide>
 </package>
+`;
+}
+
+function renderCoverPage(cover: FetchedImage, title: string): string {
+	const escapedTitle = xmlEscape(title);
+	return `<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<head>
+<title>Cover</title>
+<style type="text/css">
+body { margin: 0; padding: 0; text-align: center; }
+img { max-width: 100%; max-height: 100vh; }
+</style>
+</head>
+<body epub:type="cover">
+<section>
+<img src="${xmlEscape(cover.localPath)}" alt="${escapedTitle}"/>
+</section>
+</body>
+</html>
 `;
 }
 
@@ -376,10 +420,55 @@ const CONTAINER_XML = `<?xml version="1.0" encoding="UTF-8"?>
 </container>
 `;
 
+function splitLeadingCssAtRules(css: string): { leading: string[]; rest: string } {
+	let charset: string | null = null;
+	const imports: string[] = [];
+	let rest = css;
+
+	while (true) {
+		rest = rest.replace(/^\s+/, '');
+
+		const charsetMatch = rest.match(/^@charset\s+(?:"[^"\r\n]*"|'[^'\r\n]*')\s*;/i);
+		if (charsetMatch) {
+			// CSS spec: only the first @charset is honored. Later ones are dropped.
+			if (charset === null) charset = charsetMatch[0];
+			rest = rest.slice(charsetMatch[0].length);
+			continue;
+		}
+
+		const importMatch = rest.match(
+			/^@import\s+(?:url\((?:[^()\\]|\\.)*\)|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^;"'\r\n()]*)[^;]*;/i,
+		);
+		if (importMatch) {
+			imports.push(importMatch[0]);
+			rest = rest.slice(importMatch[0].length);
+			continue;
+		}
+
+		break;
+	}
+
+	// @charset must precede @import regardless of the order the user wrote them in.
+	const leading = charset ? [charset, ...imports] : imports;
+	return { leading, rest: rest.trim() };
+}
+
+function resolveStyleSheet(customCss: string | undefined, mode: 'append' | 'replace' | undefined): string {
+	const trimmed = customCss?.trim();
+	if (!trimmed) return DEFAULT_STYLE;
+	if (mode === 'replace') return `${trimmed}\n`;
+
+	const { leading, rest } = splitLeadingCssAtRules(trimmed);
+	const parts = [...leading, DEFAULT_STYLE, rest].filter((part) => part);
+	return `${parts.join('\n')}\n`;
+}
+
 export function buildEpub(input: EpubInput): Uint8Array {
 	const uid = (input.identifier && input.identifier.trim()) || randomUUID();
 	const encoder = new TextEncoder();
 	const images = input.images || [];
+	const styleSheet = resolveStyleSheet(input.customCss, input.cssMode);
+	const cover = input.cover;
 
 	let chapterHtml = input.html;
 	let headings: Heading[] = [];
@@ -392,12 +481,20 @@ export function buildEpub(input: EpubInput): Uint8Array {
 	const entries: ZipEntry[] = [
 		{ path: 'mimetype', data: encoder.encode('application/epub+zip') },
 		{ path: 'META-INF/container.xml', data: encoder.encode(CONTAINER_XML) },
-		{ path: 'OEBPS/content.opf', data: encoder.encode(renderOpf(input, uid, images)) },
+		{ path: 'OEBPS/content.opf', data: encoder.encode(renderOpf(input, uid, images, cover)) },
 		{ path: 'OEBPS/toc.xhtml', data: encoder.encode(renderToc(input, headings)) },
 		{ path: 'OEBPS/toc.ncx', data: encoder.encode(renderNcx(input, uid, headings)) },
 		{ path: 'OEBPS/article_content.xhtml', data: encoder.encode(renderChapter(input, chapterHtml)) },
-		{ path: 'OEBPS/style.css', data: encoder.encode(DEFAULT_STYLE) },
+		{ path: 'OEBPS/style.css', data: encoder.encode(styleSheet) },
 	];
+
+	if (cover) {
+		entries.push({
+			path: 'OEBPS/cover.xhtml',
+			data: encoder.encode(renderCoverPage(cover, input.title)),
+		});
+		entries.push({ path: `OEBPS/${cover.localPath}`, data: cover.data });
+	}
 
 	for (const img of images) {
 		entries.push({ path: `OEBPS/${img.localPath}`, data: img.data });
