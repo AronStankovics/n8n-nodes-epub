@@ -84,6 +84,8 @@ function decodeBasicEntities(s: string): string {
 		.replace(/&amp;/g, '&');
 }
 
+// ASCII-only. Non-Latin input (ä, 日本語, emoji, …) collapses to an empty
+// string; callers must fall back to a synthetic id in that case.
 function slugify(text: string): string {
 	return text
 		.toLowerCase()
