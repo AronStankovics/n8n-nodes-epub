@@ -138,8 +138,8 @@ function decodeBasicEntities(s: string): string {
 		.replace(/&quot;/g, '"')
 		.replace(/&apos;/g, "'")
 		.replace(/&nbsp;/g, ' ')
-		.replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)))
-		.replace(/&#x([0-9a-fA-F]+);/g, (_, n) => String.fromCharCode(parseInt(n, 16)))
+		.replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(parseInt(n, 10)))
+		.replace(/&#x([0-9a-fA-F]+);/g, (_, n) => String.fromCodePoint(parseInt(n, 16)))
 		.replace(/&amp;/g, '&');
 }
 
@@ -156,6 +156,13 @@ function slugify(text: string): string {
 // flat ordered list of headings. The returned `annotatedHtml` is identical to
 // the input except for the injected `id` attributes, so the chapter XHTML and
 // the TOC point at matching anchors.
+function getUniqueHeadingId(base: string, used: Set<string>): string {
+	let candidate = base;
+	let n = 2;
+	while (used.has(candidate)) candidate = `${base}-${n++}`;
+	return candidate;
+}
+
 function extractHeadings(html: string): { annotatedHtml: string; headings: Heading[] } {
 	const headings: Heading[] = [];
 	const used = new Set<string>();
@@ -172,13 +179,11 @@ function extractHeadings(html: string): { annotatedHtml: string; headings: Headi
 		let id: string;
 		let newAttrs = attrs;
 		if (existingId) {
-			id = existingId;
+			id = getUniqueHeadingId(existingId, used);
+			if (id !== existingId) newAttrs = attrs.replace(ID_ATTR_RE, `id="${id}"`);
 		} else {
 			const base = slugify(text) || `heading-${++fallback}`;
-			let candidate = base;
-			let n = 2;
-			while (used.has(candidate)) candidate = `${base}-${n++}`;
-			id = candidate;
+			id = getUniqueHeadingId(base, used);
 			newAttrs = `${attrs} id="${id}"`;
 		}
 		used.add(id);
@@ -207,7 +212,7 @@ function renderTocNav(nodes: HeadingNode[], chapterHref: string): string {
 	const items = nodes
 		.map((n) => {
 			const sub = n.children.length > 0 ? `\n${renderTocNav(n.children, chapterHref)}` : '';
-			return `<li><a href="${chapterHref}#${n.id}">${xmlEscape(n.text)}</a>${sub}</li>`;
+			return `<li><a href="${xmlEscape(`${chapterHref}#${n.id}`)}">${xmlEscape(n.text)}</a>${sub}</li>`;
 		})
 		.join('\n');
 	return `<ol>\n${items}\n</ol>`;
@@ -228,7 +233,7 @@ function renderNcxNavPoints(
 					: '';
 			return `<navPoint id="nav-${playOrder}" playOrder="${playOrder}">
 <navLabel><text>${xmlEscape(node.text)}</text></navLabel>
-<content src="${chapterHref}#${node.id}"/>${children}
+<content src="${xmlEscape(`${chapterHref}#${node.id}`)}"/>${children}
 </navPoint>`;
 		})
 		.join('\n');
