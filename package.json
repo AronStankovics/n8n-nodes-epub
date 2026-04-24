@@ -58,7 +58,7 @@
     "@n8n/node-cli": "^0.23.1",
     "eslint": "10.2.1",
     "@vitest/coverage-v8": "^4.0.0",
-    "release-it": "20.0.0",
+    "release-it": "20.0.1",
     "typescript": "6.0.3",
     "vitest": "^4.0.0"
   },
