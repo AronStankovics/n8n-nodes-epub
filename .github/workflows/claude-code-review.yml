@@ -12,8 +12,11 @@ on:
 
 jobs:
   claude-review:
-    # Skip Renovate PRs (matched by branch prefix).
-    if: ${{ !startsWith(github.head_ref, 'renovate/') }}
+    # Skip Renovate PRs (matched by branch prefix or labels).
+    if: |
+      !startsWith(github.head_ref, 'renovate/') &&
+      !contains(github.event.pull_request.labels.*.name, 'renovate') &&
+      !contains(github.event.pull_request.labels.*.name, 'dependencies')
 
     runs-on: ubuntu-latest
     permissions:
