@@ -12,8 +12,10 @@ on:
 
 jobs:
   claude-review:
-    # Skip PRs opened by Renovate bot
+    # Skip Renovate PRs. Renovate runs as a regular user account in this repo,
+    # so user.login isn't reliable; filter on the head branch instead.
     if: |
+      !startsWith(github.head_ref, 'renovate/') &&
       github.event.pull_request.user.login != 'renovate[bot]' &&
       github.event.pull_request.user.login != 'renovate-bot'
 
