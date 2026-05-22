@@ -29,16 +29,11 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        # Use `npm install` instead of `npm ci` so CI tolerates the partial
-        # lockfile updates Renovate occasionally produces (missing nested
-        # transitive entries that npm 10 rejects but npm 11 accepts). The
-        # lockfile is not committed back from CI, so determinism on main is
-        # preserved by local installs / merges.
         # --ignore-scripts skips native postinstalls (notably isolated-vm, a
         # transitive dep of @n8n/node-cli that fails to compile on some
         # Node 20.x V8 headers). We don't exercise isolated-vm from the test
         # suite or the lint step, so skipping its build is safe.
-        run: npm install --no-audit --no-fund --ignore-scripts
+        run: npm ci --ignore-scripts
 
       - name: Lint
         run: npm run lint
