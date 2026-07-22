@@ -55,7 +55,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@n8n/node-cli": "^0.38.0",
+    "@n8n/node-cli": "^0.40.0",
     "eslint": "10.7.0",
     "@vitest/coverage-v8": "^4.0.0",
     "release-it": "20.2.1",
