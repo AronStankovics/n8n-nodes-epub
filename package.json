@@ -55,8 +55,8 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@n8n/node-cli": "^0.40.0",
     "eslint": "10.8.1",
+    "@n8n/node-cli": "^0.43.0",
     "@vitest/coverage-v8": "^4.0.0",
     "release-it": "21.0.2",
     "typescript": "6.0.3",
