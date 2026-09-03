@@ -57,10 +57,10 @@
     "@eslint/js": "^10.0.1",
     "eslint": "10.8.1",
     "@n8n/node-cli": "^0.44.0",
-    "@vitest/coverage-v8": "^4.0.0",
+    "@vitest/coverage-v8": "^5.0.0",
     "release-it": "21.0.2",
     "typescript": "6.0.3",
-    "vitest": "^4.0.0"
+    "vitest": "^5.0.0"
   },
   "peerDependencies": {
     "n8n-workflow": "*"
